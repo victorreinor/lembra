@@ -1,0 +1,19 @@
+{
+  "name": "lembra",
+  "version": "0.1.0",
+  "description": "O histórico permanente e pesquisável do Claude Code: busca prompts, recupera arquivos apagados e retoma sessões.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "lembra": "src/cli/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lembra": "bun src/cli/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
+}
