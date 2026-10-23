@@ -25,9 +25,8 @@ export function search(db: Database, input: string, filters: Filters, opts: { pr
   const m = filterSql(filters, { repo: "m.repo", branch: "m.branch", from: "m.ts", to: "m.ts" });
   if (opts.promptsOnly) m.where.push("m.role = 'prompt'");
   const rows = db
-    .query<Snippet & { session_id: string; score: number }, any>(
-      `SELECT m.session_id, m.role, m.ts,
-         snippet(messages_fts, 0, char(1), char(2), '…', 24) AS text,
+    .query<{ id: number; session_id: string; role: Role; ts: string; score: number }, any>(
+      `SELECT m.id, m.session_id, m.role, m.ts,
          bm25(messages_fts) * CASE m.role WHEN 'prompt' THEN 2.0 WHEN 'reply' THEN 1.0 ELSE 1.5 END AS score
        FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid
        WHERE messages_fts MATCH $match ${m.where.map((clause) => `AND ${clause}`).join(" ")}
@@ -36,11 +35,11 @@ export function search(db: Database, input: string, filters: Filters, opts: { pr
     .all({ match, ...m.params });
 
   // bm25 is negative: lower is a better match. Rows arrive best-first.
-  const best = new Map<string, { score: number; snippets: Snippet[] }>();
-  for (const { session_id, score, ...snippet } of rows) {
-    const hit = best.get(session_id) ?? { score, snippets: [] };
-    if (hit.snippets.length < SNIPPETS_PER_SESSION) hit.snippets.push(snippet);
-    best.set(session_id, hit);
+  const best = new Map<string, { score: number; messages: typeof rows }>();
+  for (const row of rows) {
+    const hit = best.get(row.session_id) ?? { score: row.score, messages: [] };
+    if (hit.messages.length < SNIPPETS_PER_SESSION) hit.messages.push(row);
+    best.set(row.session_id, hit);
   }
 
   if (!opts.promptsOnly) {
@@ -53,17 +52,29 @@ export function search(db: Database, input: string, filters: Filters, opts: { pr
       )
       .all({ match, ...s.params });
     for (const { id, score } of titles) {
-      const hit = best.get(id) ?? { score, snippets: [] };
+      const hit = best.get(id) ?? { score, messages: [] };
       hit.score = Math.min(hit.score, score);
       best.set(id, hit);
     }
   }
 
-  return [...best.entries()]
-    .sort((a, b) => a[1].score - b[1].score)
-    .slice(0, opts.limit)
-    .flatMap(([id, hit]) => {
-      const session = getSession(db, id);
-      return session ? [{ session, snippets: hit.snippets }] : [];
-    });
+  const top = [...best.entries()].sort((a, b) => a[1].score - b[1].score).slice(0, opts.limit);
+  // snippet() is the expensive part, so only the messages shown get one.
+  const shown = top.flatMap(([, hit]) => hit.messages.map((message) => message.id));
+  const texts = new Map(
+    shown.length
+      ? db
+          .query<{ id: number; text: string }, any>(
+            `SELECT rowid AS id, snippet(messages_fts, 0, char(1), char(2), '…', 24) AS text
+             FROM messages_fts WHERE messages_fts MATCH $match AND rowid IN (${shown.join(",")})`,
+          )
+          .all({ match })
+          .map((row) => [row.id, row.text])
+      : [],
+  );
+  return top.flatMap(([id, hit]) => {
+    const session = getSession(db, id);
+    const snippets = hit.messages.map(({ id, role, ts }) => ({ role, ts, text: texts.get(id) ?? "" }));
+    return session ? [{ session, snippets }] : [];
+  });
 }

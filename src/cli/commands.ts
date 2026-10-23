@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { restoreTranscript } from "../core/archive";
 import { readConfig, writeConfig } from "../core/config";
 import { LembraError } from "../core/errors";
+import { forEachLimited } from "../core/exec";
 import { fileStatus, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
 import { buildHandoff } from "../core/handoff";
 import { indexAll } from "../core/indexer";
@@ -72,6 +73,7 @@ export interface Context {
 
 type Command = (ctx: Context) => number | void | Promise<number | void>;
 
+const SUMMARY_CONCURRENCY = 3;
 const ROLE_MARK = { prompt: "›", reply: "‹", summary: "≡", digest: "∑" } as const;
 const STEP_MARK: Record<StepStatus, string> = { ok: green("✓"), changed: cyan("●"), skipped: yellow("–"), failed: red("✗") };
 
@@ -223,17 +225,17 @@ async function summarizeCommand({ db, options, args, io, services, t, locale }: 
   const runner = services.summarizer(model);
   io.err(dim(t.summarize.running(sessions.length, model)));
   let failed = 0;
-  for (const session of sessions) {
+  // A few claude -p runs at once: each mostly waits on the network.
+  await forEachLimited(sessions, SUMMARY_CONCURRENCY, async (session) => {
     try {
       const digest = await summarizeSession(db, session, runner, locale);
-      io.out(`${green("✓")} ${cyan(session.id.slice(0, 8))} ${bold(oneLine(session.title, 60))}`);
-      io.out(dim(`   ${oneLine(digest.split("\n")[0], 140)}`));
+      io.out(`${green("✓")} ${cyan(session.id.slice(0, 8))} ${bold(oneLine(session.title, 60))}\n${dim(`   ${oneLine(digest.split("\n")[0], 140)}`)}`);
     } catch (error) {
       if (!(error instanceof LembraError)) throw error;
       failed++;
       io.err(`${red("✗")} ${session.id.slice(0, 8)} ${error.in(locale)}`);
     }
-  }
+  });
   return failed ? 1 : 0;
 }
 

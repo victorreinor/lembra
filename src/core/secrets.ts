@@ -67,6 +67,13 @@ export function redact(text: string): Redaction {
   return { text, count };
 }
 
+// The text as lembra stores it: secrets replaced, empty values kept empty.
+export function mask(text: string): string;
+export function mask(text: string | null | undefined): string | null;
+export function mask(text: string | null | undefined): string | null {
+  return text ? redact(text).text : (text ?? null);
+}
+
 // How many secrets a stored file holds; binary and very large files are not scanned.
 export function countSecrets(data: Uint8Array): number {
   if (data.byteLength > 2 * 1024 * 1024 || data.includes(0)) return 0;

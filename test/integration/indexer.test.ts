@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -154,6 +154,30 @@ describe("indexAll", () => {
     expect(getSession(db, OLD_SESSION)).toMatchObject({ source: "history", prompt_count: 2, repo: "billing-app" });
     expect(sessionMessages(db, OLD_SESSION)[1]!.text).toContain("log de erro do worker");
     expect(getSession(db, SESSION)!.prompt_count).toBe(1);
+  });
+
+  test("reads history.jsonl from where it stopped and leaves recent prompts for later", async () => {
+    const history = join(f.paths.claudeDir, "history.jsonl");
+    const now = Date.now();
+    writeJsonl(history, [
+      { display: "prompt antigo", pastedContents: {}, timestamp: now - 3 * 3_600_000, project: f.cwd, sessionId: OLD_SESSION },
+      { display: "prompt de agora", pastedContents: {}, timestamp: now, project: f.cwd, sessionId: "live-session" },
+    ]);
+    // A line still being written is not read.
+    appendFileSync(history, '{"display":"pela met');
+    expect((await indexAll(db, f.paths)).history).toBe(1);
+    expect((await indexAll(db, f.paths)).history).toBe(0);
+    expect(getSession(db, "live-session")).toBeNull();
+
+    // An hour later the live session never got a transcript: its prompt is history now.
+    setSystemTime(new Date(now + 2 * 3_600_000));
+    try {
+      expect((await indexAll(db, f.paths)).history).toBe(1);
+    } finally {
+      setSystemTime();
+    }
+    expect(getSession(db, "live-session")).toMatchObject({ source: "history", prompt_count: 1 });
+    expect(getSession(db, OLD_SESSION)!.prompt_count).toBe(1);
   });
 
   test("archives raw transcripts and puts a deleted one back", async () => {

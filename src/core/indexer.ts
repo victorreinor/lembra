@@ -5,7 +5,7 @@ import { archiveFile } from "./archive";
 import { getBlob, putBlob } from "./blobs";
 import { expandHome, type Paths } from "./paths";
 import { resolveRepo } from "./repo";
-import { countSecrets, REDACTION_VERSION, redact } from "./secrets";
+import { countSecrets, mask, REDACTION_VERSION, redact } from "./secrets";
 import {
   applyEdit,
   findPaths,
@@ -24,6 +24,9 @@ const HISTORY_GRACE_MS = 60 * 60 * 1000;
 
 const INSERT_MESSAGE = `INSERT OR IGNORE INTO messages (uid, session_id, ts, role, text, cwd, repo, branch)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
+// Writing the same title again would still rewrite its FTS row, so only changed titles are updated.
+const TITLE = "coalesce(custom_title, ai_title, substr(first_prompt, 1, 120))";
+const REFRESH_TITLES = `UPDATE sessions SET title = ${TITLE} WHERE title IS NOT ${TITLE}`;
 const SAVE_OFFSET = `INSERT INTO sources (path, offset, size) VALUES (?, ?, ?)
   ON CONFLICT (path) DO UPDATE SET offset = excluded.offset, size = excluded.size`;
 
@@ -150,6 +153,7 @@ function sourceState(db: Database, path: string): SourceState {
 }
 
 // Prompts from sessions whose transcript Claude Code already deleted survive only in history.jsonl.
+// The file only grows, so each run reads from where the last one stopped.
 async function importHistory(
   db: Database,
   indexer: Indexer,
@@ -162,27 +166,32 @@ async function importHistory(
   const size = statSync(file).size;
   const state = sourceState(db, file);
   if (opts.archive && state.archived_size !== size) await archiveFile(db, paths, file, size);
-  if (state.size === size) return 0;
+  if (state.offset === size) return 0;
 
-  const text = await Bun.file(file).text();
   const withTranscript = new Set(sources.filter((source) => !source.subagent).map((source) => source.sessionId));
   for (const { id } of db.query<{ id: string }, []>("SELECT id FROM sessions WHERE source = 'transcript'").all()) {
     withTranscript.add(id);
   }
   const cutoff = Date.now() - HISTORY_GRACE_MS;
+  const sessions = new Map<string, SessionUpdate>();
+  let offset = state.offset <= size ? state.offset : 0;
   let added = 0;
   db.transaction(() => {
-    const sessions = new Map<string, SessionUpdate>();
-    for (const line of text.split("\n")) {
+    for (const line of readLines(file, offset, size)) {
       let entry: any;
       try {
-        entry = JSON.parse(line);
+        entry = JSON.parse(line.text);
       } catch {
+        offset = line.next;
         continue;
       }
-      const id = entry.sessionId;
       const at = Number(entry.timestamp);
-      if (!id || withTranscript.has(id) || !(at < cutoff) || indexer.isOwnSession(entry.project)) continue;
+      // Entries are appended in order: from here on they are too recent, so the next run starts here.
+      if (at >= cutoff) break;
+      offset = line.next;
+      if (!Number.isFinite(at)) continue;
+      const id = entry.sessionId;
+      if (!id || withTranscript.has(id) || indexer.isOwnSession(entry.project)) continue;
       const prompt = historyPrompt(entry);
       if (!prompt) continue;
       const ts = new Date(at).toISOString();
@@ -190,13 +199,22 @@ async function importHistory(
       const session = sessions.get(id) ?? {};
       merge(session, { ts, cwd, sidechain: false, messages: [], files: [] });
       sessions.set(id, session);
-      // `changes` also counts the FTS trigger's writes, so treat it as a boolean.
-      if (db.query(INSERT_MESSAGE).run(`h:${id}:${at}`, id, ts, "prompt", redact(prompt).text, cwd, indexer.repoOf(cwd), null).changes) added++;
+      if (indexer.insertMessage(`h:${id}:${at}`, id, ts, "prompt", prompt, cwd, null)) added++;
     }
     for (const [id, session] of sessions) indexer.updateSession(id, "history", session);
-    db.query(SAVE_OFFSET).run(file, size, size);
+    db.query(SAVE_OFFSET).run(file, offset, size);
   })();
   return added;
+}
+
+// Complete lines of `path` between two byte offsets, each with the offset right after it.
+function* readLines(path: string, start: number, end: number) {
+  const bytes = readFileSync(path).subarray(start, end);
+  let from = 0;
+  for (let newline = bytes.indexOf(10); newline !== -1; newline = bytes.indexOf(10, from)) {
+    yield { text: decoder.decode(bytes.subarray(from, newline)), next: start + newline + 1 };
+    from = newline + 1;
+  }
 }
 
 function merge(session: SessionUpdate, record: ParsedRecord) {
@@ -281,15 +299,18 @@ class Indexer {
       const cwd = parsed.cwd ?? session.cwd ?? null;
       const branch = parsed.branch ?? session.branch ?? null;
       for (const message of parsed.messages) {
-        const { changes } = this.db
-          .query(INSERT_MESSAGE)
-          .run(message.uid, source.sessionId, ts, message.role, redact(message.text).text, cwd, this.repoOf(cwd), branch);
-        if (!changes) continue;
+        if (!this.insertMessage(message.uid, source.sessionId, ts, message.role, message.text, cwd, branch)) continue;
         stats.messages++;
         if (message.role === "prompt") stats.files += this.captureRefs(source.sessionId, message.uid, message.text);
       }
     }
     if (!source.subagent) this.updateSession(source.sessionId, "transcript", session);
+  }
+
+  // Stores a message with its secrets masked; false when it was already there.
+  insertMessage(uid: string, sessionId: string, ts: string, role: string, text: string, cwd: string | null, branch: string | null): boolean {
+    // `changes` also counts the FTS trigger's writes, so treat it as a boolean.
+    return this.db.query(INSERT_MESSAGE).run(uid, sessionId, ts, role, mask(text), cwd, this.repoOf(cwd), branch).changes > 0;
   }
 
   updateSession(id: string, source: "transcript" | "history", session: SessionUpdate) {
@@ -321,14 +342,19 @@ class Indexer {
         cwd: session.cwd ?? null,
         repo: this.repoOf(session.cwd),
         branch: session.branch ?? null,
-        aiTitle: session.aiTitle ? redact(session.aiTitle).text : null,
-        customTitle: session.customTitle ? redact(session.customTitle).text : null,
+        aiTitle: mask(session.aiTitle),
+        customTitle: mask(session.customTitle),
         cost: session.cost?.usd ?? null,
         added: session.cost?.added ?? null,
         removed: session.cost?.removed ?? null,
         first: session.firstTs ?? null,
         last: session.lastTs ?? null,
       });
+    this.refreshDerived(id);
+  }
+
+  // Columns computed from the session's messages and titles.
+  private refreshDerived(id: string) {
     this.db
       .query(
         `UPDATE sessions SET
@@ -338,7 +364,7 @@ class Indexer {
         WHERE id = $id`,
       )
       .run({ id });
-    this.db.query("UPDATE sessions SET title = coalesce(custom_title, ai_title, substr(first_prompt, 1, 120)) WHERE id = ?").run(id);
+    this.db.query(`${REFRESH_TITLES} AND id = ?`).run(id);
   }
 
   private addFile(sessionId: string, ts: string, op: FileOp): boolean {
@@ -356,31 +382,25 @@ class Indexer {
 
   // Masks secrets stored before the current rules existed: messages, titles, summaries; flags stored files.
   redactStored() {
-    const changed = this.db
-      .query<{ id: number; session_id: string; text: string }, []>("SELECT id, session_id, text FROM messages")
-      .all()
-      .map((row) => ({ ...row, redacted: redact(row.text) }))
-      .filter((row) => row.redacted.count > 0);
-    const sessions = this.db.query<{ id: string; source: "transcript" | "history"; ai_title: string | null; custom_title: string | null; digest: string | null }, []>(
-      "SELECT id, source, ai_title, custom_title, digest FROM sessions",
-    ).all();
-    const blobs = this.db.query<{ sha: string }, []>("SELECT DISTINCT sha FROM files WHERE sha IS NOT NULL AND kind != 'image'").all();
-
     this.db.transaction(() => {
-      for (const row of changed) this.db.query("UPDATE messages SET text = ? WHERE id = ?").run(row.redacted.text, row.id);
-      for (const session of sessions) {
-        const masked = (value: string | null) => (value ? redact(value).text : null);
-        this.db
-          .query("UPDATE sessions SET ai_title = ?, custom_title = ?, digest = ? WHERE id = ?")
-          .run(masked(session.ai_title), masked(session.custom_title), masked(session.digest), session.id);
+      // Only the rows that change are kept in memory, not every message.
+      const changed: { id: number; session_id: string; text: string }[] = [];
+      for (const row of this.db.query<{ id: number; session_id: string; text: string }, []>("SELECT id, session_id, text FROM messages").iterate()) {
+        const { text, count } = redact(row.text);
+        if (count) changed.push({ ...row, text });
+      }
+      for (const row of changed) this.db.query("UPDATE messages SET text = ? WHERE id = ?").run(row.text, row.id);
+      const touched = new Set(changed.map((row) => row.session_id));
+      type Texts = { id: string; ai_title: string | null; custom_title: string | null; digest: string | null };
+      for (const session of this.db.query<Texts, []>("SELECT id, ai_title, custom_title, digest FROM sessions").all()) {
+        const masked = { ai_title: mask(session.ai_title), custom_title: mask(session.custom_title), digest: mask(session.digest) };
+        if (masked.ai_title === session.ai_title && masked.custom_title === session.custom_title && masked.digest === session.digest) continue;
+        this.db.query("UPDATE sessions SET ai_title = $ai_title, custom_title = $custom_title, digest = $digest WHERE id = $id").run({ ...masked, id: session.id });
       }
       // First/last prompt and the derived title come from the (now masked) messages.
-      for (const id of new Set(changed.map((row) => row.session_id))) {
-        const source = sessions.find((session) => session.id === id)?.source ?? "transcript";
-        this.updateSession(id, source, {});
-      }
-      for (const { id } of sessions) this.db.query("UPDATE sessions SET title = coalesce(custom_title, ai_title, substr(first_prompt, 1, 120)) WHERE id = ?").run(id);
-      for (const { sha } of blobs) {
+      for (const id of touched) this.refreshDerived(id);
+      this.db.query(REFRESH_TITLES).run();
+      for (const { sha } of this.db.query<{ sha: string }, []>("SELECT DISTINCT sha FROM files WHERE sha IS NOT NULL AND kind != 'image'").all()) {
         const data = getBlob(this.db, sha);
         if (data) this.db.query("UPDATE files SET secrets = ? WHERE sha = ?").run(countSecrets(data), sha);
       }
