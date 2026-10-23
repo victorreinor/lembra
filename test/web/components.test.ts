@@ -47,6 +47,7 @@ const file = (overrides: Partial<FileDTO> = {}): FileDTO => ({
   repoName: "billing-api",
   sessionId: session.id,
   versions: 1,
+  secrets: 0,
   status: "missing",
   ...overrides,
 });

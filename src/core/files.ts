@@ -15,11 +15,13 @@ export interface StoredFile {
   size: number | null;
   repo: string | null;
   versions: number;
+  // Credentials found in the stored content (the content itself is kept intact for restores).
+  secrets: number;
 }
 
 export type StoredVersion = StoredFile & { sha: string };
 
-const COLUMNS = `f.id, f.session_id, f.ts, f.path, f.kind, f.sha, f.size, s.repo,
+const COLUMNS = `f.id, f.session_id, f.ts, f.path, f.kind, f.sha, f.size, f.secrets, s.repo,
   (SELECT count(*) FROM files v WHERE v.path = f.path AND v.sha IS NOT NULL) AS versions`;
 const FROM = "FROM files f LEFT JOIN sessions s ON s.id = f.session_id";
 

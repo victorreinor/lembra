@@ -9,6 +9,7 @@ import { parseDate, type Filters } from "../core/query";
 import { search } from "../core/search";
 import type { Services } from "../core/services";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
+import { redact } from "../core/secrets";
 import { bracketMatches, clip, oneLine, repoName, shortPath, textFormat } from "../core/text";
 import type { Locale } from "../i18n/locale";
 import { MCP } from "../i18n/mcp";
@@ -195,8 +196,10 @@ export const TOOLS: Tool[] = [
       const file = resolveFile(db, text(args, "file", true)!);
       const data = readStoredFile(db, file);
       if (data.includes(0)) return t.binary(file.path, data.byteLength, file.id);
-      const header = t.version(file.path, textFormat(locale).when(file.ts)) + (isMissing(file) ? t.restoreHint(file.id) : "");
-      return `${header}\n\n${clip(new TextDecoder().decode(data), typeof args.max_chars === "number" ? args.max_chars : 50_000)}`;
+      // The vault keeps the exact file; what goes back into a model context has its credentials masked.
+      const { text: content, count } = redact(new TextDecoder().decode(data));
+      const header = t.version(file.path, textFormat(locale).when(file.ts)) + (isMissing(file) ? t.restoreHint(file.id) : "") + (count ? t.secretsMasked(count, file.id) : "");
+      return `${header}\n\n${clip(content, typeof args.max_chars === "number" ? args.max_chars : 50_000)}`;
     },
   },
   {

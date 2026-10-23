@@ -67,6 +67,7 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
       ),
     ),
     status,
+    h("span", { class: "file-row__secrets" }, file.secrets > 0 && Badge(t.file.secrets(file.secrets), "warning", "alert")),
     h(
       "span",
       { class: "file-row__actions" },

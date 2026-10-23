@@ -5,6 +5,7 @@ import { CORE } from "../i18n/core";
 import type { Locale } from "../i18n/locale";
 import { LembraError } from "./errors";
 import type { Paths } from "./paths";
+import { redact } from "./secrets";
 import { sessionMessages, type Session, type SessionMessage } from "./sessions";
 import { clip } from "./text";
 
@@ -59,7 +60,8 @@ export function sessionsToSummarize(db: Database, opts: { limit: number; now?: D
 }
 
 export async function summarizeSession(db: Database, session: Session, runner: Runner, locale: Locale): Promise<string> {
-  const digest = (await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true }), locale))).trim();
+  // The model sees masked text already; masking its answer too covers anything it reconstructs.
+  const digest = redact((await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true }), locale))).trim()).text;
   if (!digest) throw new LembraError("summaryEmpty", { id: session.id.slice(0, 8) });
   const uid = `digest:${session.id}`;
   db.transaction(() => {

@@ -19,6 +19,8 @@ export interface LembraStats {
   rawBytes: number;
   claudeBytes: number;
   retentionDays: number | null;
+  maskedMessages: number;
+  secretFiles: number;
 }
 
 export function collectStats(db: Database, paths: Paths): LembraStats {
@@ -50,6 +52,8 @@ export function collectStats(db: Database, paths: Paths): LembraStats {
     rawBytes: treeSize(join(paths.dataDir, "raw")),
     claudeBytes: claudeBytes + sizeOf(join(paths.claudeDir, "history.jsonl")),
     retentionDays: retentionDays(paths.claudeDir),
+    maskedMessages: db.query<{ n: number }, []>("SELECT count(*) AS n FROM messages WHERE text LIKE '%[REDACTED:%'").get()!.n,
+    secretFiles: db.query<{ n: number }, []>("SELECT count(DISTINCT path) AS n FROM files WHERE secrets > 0").get()!.n,
   };
 }
 

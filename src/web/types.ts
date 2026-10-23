@@ -55,6 +55,7 @@ export interface FileDTO {
   sessionId: string;
   versions: number;
   status: FileStatus;
+  secrets: number;
 }
 
 export interface MessageDTO {

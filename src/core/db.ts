@@ -62,6 +62,10 @@ END;
 CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
   INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF text ON messages BEGIN
+  INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  INSERT INTO messages_fts (rowid, text) VALUES (new.id, new.text);
+END;
 
 CREATE VIRTUAL TABLE IF NOT EXISTS sessions_fts USING fts5 (
   title, content = 'sessions', content_rowid = 'pk', tokenize = 'unicode61 remove_diacritics 2'
@@ -101,6 +105,7 @@ CREATE INDEX IF NOT EXISTS files_session ON files (session_id);
 const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
   ["sessions", "digest", "TEXT"], // AI summary (lembra summarize)
   ["sessions", "digest_at", "TEXT"],
+  ["files", "secrets", "INTEGER NOT NULL DEFAULT 0"], // credentials found in the stored content
 ];
 
 export function openDb(dataDir: string): Database {

@@ -22,6 +22,7 @@ const en = {
   binary: (path: string, bytes: number, id: number) => `${path} is binary (${bytes} bytes). To recover it: lembra restore ${id}`,
   version: (path: string, when: string) => `${path} · version from ${when}`,
   restoreHint: (id: number) => ` · deleted from disk (lembra restore ${id})`,
+  secretsMasked: (n: number, id: number) => ` · ${n} ${n === 1 ? "secret" : "secrets"} masked (the original: lembra cat ${id})`,
   nothingPending: "Nothing pending: every branch with a recent session was pushed and has a PR.",
   pending: (repo: string, branch: string, reasons: string, id: string, when: string) => `${repo} · ${branch}: ${reasons} (last session ${id}, ${when})`,
 };
@@ -46,6 +47,7 @@ const ptBR: McpCatalog = {
   binary: (path, bytes, id) => `${path} é binário (${bytes} bytes). Para recuperar: lembra restore ${id}`,
   version: (path, when) => `${path} · versão de ${when}`,
   restoreHint: (id) => ` · apagado do disco (lembra restore ${id})`,
+  secretsMasked: (n, id) => ` · ${n} ${n === 1 ? "segredo mascarado" : "segredos mascarados"} (original: lembra cat ${id})`,
   nothingPending: "Nada pendente: toda branch com sessão recente foi enviada e tem PR.",
   pending: (repo, branch, reasons, id, when) => `${repo} · ${branch}: ${reasons} (última sessão ${id}, ${when})`,
 };

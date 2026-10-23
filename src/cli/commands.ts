@@ -257,6 +257,7 @@ function statsCommand({ db, paths, io, t, fmt }: Context) {
     [t.stats.files.label, t.stats.files.value(fmt.count(stats.paths), fmt.count(stats.versions), fmt.count(stats.missing))],
     [t.stats.vault.label, t.stats.vault.value(fmt.bytes(stats.dbBytes), fmt.bytes(stats.rawBytes))],
     [t.stats.claude.label, t.stats.claude.value(fmt.bytes(stats.claudeBytes), shortPath(paths.claudeDir), retention)],
+    [t.stats.security.label, t.stats.security.value(fmt.count(stats.maskedMessages), fmt.count(stats.secretFiles))],
   ];
   for (const [label, value] of rows) io.out(`${bold(label.padEnd(12))} ${value}`);
 }

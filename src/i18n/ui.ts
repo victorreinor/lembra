@@ -80,6 +80,7 @@ const en = {
     download: "Download",
     restore: "Restore",
     restoredTo: (dest: string) => `Restored to ${dest}`,
+    secrets: (n: number) => `${n} ${plural(n, "secret", "secrets")} inside`,
   },
   toasts: {
     commandCopied: "Command copied. Paste it in a terminal.",
@@ -204,6 +205,7 @@ const ptBR: UiCatalog = {
     download: "Baixar",
     restore: "Restaurar",
     restoredTo: (dest) => `Restaurado em ${dest}`,
+    secrets: (n) => `${n} ${plural(n, "segredo", "segredos")} dentro`,
   },
   toasts: {
     commandCopied: "Comando copiado. Cole num terminal.",

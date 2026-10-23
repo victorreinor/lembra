@@ -5,6 +5,7 @@ import { archiveFile } from "./archive";
 import { getBlob, putBlob } from "./blobs";
 import { expandHome, type Paths } from "./paths";
 import { resolveRepo } from "./repo";
+import { countSecrets, REDACTION_VERSION, redact } from "./secrets";
 import {
   applyEdit,
   findPaths,
@@ -92,6 +93,8 @@ export async function indexAll(db: Database, paths: Paths, opts: IndexOptions = 
   const sources = listSources(join(paths.claudeDir, "projects"));
   const stats: IndexStats = { scanned: sources.length, changed: 0, messages: 0, files: 0, history: 0 };
   const indexer = new Indexer(db, paths.dataDir);
+  const redaction = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'redaction_version'").get();
+  if (redaction?.value !== String(REDACTION_VERSION)) indexer.redactStored();
   for (const source of sources) {
     const state = sourceState(db, source.abs);
     if (opts.archive && state.archived_size !== source.size) await archiveFile(db, paths, source.abs, source.size);
@@ -188,7 +191,7 @@ async function importHistory(
       merge(session, { ts, cwd, sidechain: false, messages: [], files: [] });
       sessions.set(id, session);
       // `changes` also counts the FTS trigger's writes, so treat it as a boolean.
-      if (db.query(INSERT_MESSAGE).run(`h:${id}:${at}`, id, ts, "prompt", prompt, cwd, indexer.repoOf(cwd), null).changes) added++;
+      if (db.query(INSERT_MESSAGE).run(`h:${id}:${at}`, id, ts, "prompt", redact(prompt).text, cwd, indexer.repoOf(cwd), null).changes) added++;
     }
     for (const [id, session] of sessions) indexer.updateSession(id, "history", session);
     db.query(SAVE_OFFSET).run(file, size, size);
@@ -280,7 +283,7 @@ class Indexer {
       for (const message of parsed.messages) {
         const { changes } = this.db
           .query(INSERT_MESSAGE)
-          .run(message.uid, source.sessionId, ts, message.role, message.text, cwd, this.repoOf(cwd), branch);
+          .run(message.uid, source.sessionId, ts, message.role, redact(message.text).text, cwd, this.repoOf(cwd), branch);
         if (!changes) continue;
         stats.messages++;
         if (message.role === "prompt") stats.files += this.captureRefs(source.sessionId, message.uid, message.text);
@@ -318,8 +321,8 @@ class Indexer {
         cwd: session.cwd ?? null,
         repo: this.repoOf(session.cwd),
         branch: session.branch ?? null,
-        aiTitle: session.aiTitle ?? null,
-        customTitle: session.customTitle ?? null,
+        aiTitle: session.aiTitle ? redact(session.aiTitle).text : null,
+        customTitle: session.customTitle ? redact(session.customTitle).text : null,
         cost: session.cost?.usd ?? null,
         added: session.cost?.added ?? null,
         removed: session.cost?.removed ?? null,
@@ -346,9 +349,43 @@ class Indexer {
   private insertFile(sessionId: string, ts: string, uid: string, path: string, kind: string, data?: Uint8Array): boolean {
     const sha = data ? putBlob(this.db, data) : null;
     const { changes } = this.db
-      .query("INSERT OR IGNORE INTO files (uid, session_id, ts, path, kind, sha, size) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(uid, sessionId, ts, path, kind, sha, data?.byteLength ?? null);
+      .query("INSERT OR IGNORE INTO files (uid, session_id, ts, path, kind, sha, size, secrets) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(uid, sessionId, ts, path, kind, sha, data?.byteLength ?? null, data ? countSecrets(data) : 0);
     return changes > 0;
+  }
+
+  // Masks secrets stored before the current rules existed: messages, titles, summaries; flags stored files.
+  redactStored() {
+    const changed = this.db
+      .query<{ id: number; session_id: string; text: string }, []>("SELECT id, session_id, text FROM messages")
+      .all()
+      .map((row) => ({ ...row, redacted: redact(row.text) }))
+      .filter((row) => row.redacted.count > 0);
+    const sessions = this.db.query<{ id: string; source: "transcript" | "history"; ai_title: string | null; custom_title: string | null; digest: string | null }, []>(
+      "SELECT id, source, ai_title, custom_title, digest FROM sessions",
+    ).all();
+    const blobs = this.db.query<{ sha: string }, []>("SELECT DISTINCT sha FROM files WHERE sha IS NOT NULL AND kind != 'image'").all();
+
+    this.db.transaction(() => {
+      for (const row of changed) this.db.query("UPDATE messages SET text = ? WHERE id = ?").run(row.redacted.text, row.id);
+      for (const session of sessions) {
+        const masked = (value: string | null) => (value ? redact(value).text : null);
+        this.db
+          .query("UPDATE sessions SET ai_title = ?, custom_title = ?, digest = ? WHERE id = ?")
+          .run(masked(session.ai_title), masked(session.custom_title), masked(session.digest), session.id);
+      }
+      // First/last prompt and the derived title come from the (now masked) messages.
+      for (const id of new Set(changed.map((row) => row.session_id))) {
+        const source = sessions.find((session) => session.id === id)?.source ?? "transcript";
+        this.updateSession(id, source, {});
+      }
+      for (const { id } of sessions) this.db.query("UPDATE sessions SET title = coalesce(custom_title, ai_title, substr(first_prompt, 1, 120)) WHERE id = ?").run(id);
+      for (const { sha } of blobs) {
+        const data = getBlob(this.db, sha);
+        if (data) this.db.query("UPDATE files SET secrets = ? WHERE sha = ?").run(countSecrets(data), sha);
+      }
+      this.db.query("INSERT OR REPLACE INTO meta (key, value) VALUES ('redaction_version', ?)").run(String(REDACTION_VERSION));
+    })();
   }
 
   // Files named in a prompt (~/Downloads/x.sql) tend to be deleted later; keep a copy while they exist.

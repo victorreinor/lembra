@@ -67,6 +67,7 @@ export function toFileDTO(file: StoredFile): FileDTO {
     sessionId: file.session_id,
     versions: file.versions,
     status,
+    secrets: file.secrets,
   };
 }
 
