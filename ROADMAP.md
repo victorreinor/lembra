@@ -9,61 +9,59 @@
 
 ## ✅ Fase 1: indexador e CLI (v0.1)
 
-- [x] Parser dos transcripts:
-  - prompts humanos, inclusive os enviados durante o turno;
-  - respostas e resumos do `/compact`;
-  - títulos automáticos e o nome do `/rename`;
-  - custo da sessão.
-- [x] Indexação incremental por offset de bytes, tolerante a linhas pela metade
-- [x] SQLite com FTS5: sem acento, por prefixo, frase exata e ranking bm25
-- [x] Filtros por repo (nome do remote git), branch e data (absoluta, `01/10` ou relativa `7d`)
-- [x] Cofre de arquivos:
-  - Write com conteúdo completo;
-  - Edit reconstruído;
-  - Read fora do repo;
-  - arquivos citados em prompts;
-  - imagens coladas.
+- [x] Parser dos transcripts: prompts humanos (inclusive os enviados durante o turno), respostas, resumos do `/compact`, títulos automáticos, `/rename` e custo
+- [x] Indexação incremental por offset de bytes, em blocos de 8 MB, tolerante a linhas pela metade
+- [x] SQLite FTS5: sem acento, por prefixo, frase exata, ranking bm25
+- [x] Filtros por repo (remote git), branch e data (`2026-10-01`, `01/10`, `7d`)
+- [x] Cofre de arquivos: Write completo, Edit reconstruído, Read fora do repo, arquivos citados em prompts e imagens coladas
 - [x] Importação do `history.jsonl` para sessões cujo transcript já foi apagado
-- [x] Cópia bruta (zstd) de todos os transcripts, e `resume` que devolve transcripts apagados
+- [x] Cópia bruta (zstd, em streaming) de todos os transcripts e `resume` que devolve transcripts apagados
 - [x] `PARSER_VERSION`: reprocessamento automático, sem duplicar, quando o parser evolui
-- [x] Comandos `search`, `list`, `show`, `resume`, `files`, `restore`, `cat`, `index` e `stats`
-- [x] Testes unitários e de integração, typecheck strict e CI
 
-## 🚧 Fase 2: interface e captura automática
+## ✅ Fase 2: página e captura automática (v0.2)
 
-- [ ] **`lembra ui`**: servidor local (`Bun.serve`, `localhost:4747`) com a página de busca. Segue **obrigatoriamente** o [docs/ui-guidelines.md](docs/ui-guidelines.md) (tokens CSS, componentes reutilizáveis, acessibilidade, atalhos de teclado)
-  - [ ] Busca com filtros (repo, branch, período) e destaque das palavras encontradas
-  - [ ] Detalhe da sessão: prompts, resumos, arquivos e custo
-  - [ ] Ações: copiar `claude --resume`, abrir no Terminal (`osascript`), baixar ou restaurar arquivo
-  - [ ] Instalável como app (manifest PWA, "Adicionar ao Dock" no Safari, "Instalar app" no Chrome)
-- [ ] **API HTTP** reaproveitando `src/core` (a mesma que o MCP vai usar)
-- [ ] **Captura automática** via plugin do Claude Code: hook `SessionEnd` roda `lembra index`; hook `PreCompact` faz um snapshot antes de compactar
-- [ ] **`launchd`**: servidor sempre ligado e indexação diária como rede de segurança
-- [ ] **`lembra install`**: configura tudo isso (link no PATH, hooks, `launchd`, retenção) e `lembra uninstall` desfaz
-- [ ] Indexação em streaming. Hoje a primeira carga chega a cerca de 1,6 GB de memória por ler cada transcript inteiro
+- [x] `lembra ui`: servidor local (`Bun.serve`, `127.0.0.1:4747`) com a página de busca, seguindo o [guia de UI](docs/ui-guidelines.md)
+- [x] API local reaproveitando `src/core`, com proteção contra DNS rebinding e CSRF
+- [x] Ações: retomar no Terminal, copiar comando e handoff, ver, baixar e restaurar arquivos
+- [x] Instalável como app (manifest PWA, ícones)
+- [x] Plugin do Claude Code: hooks `SessionEnd` e `PreCompact` rodam `lembra hook`
+- [x] `launchd`: página sempre ligada e indexação diária às 12:30
+- [x] `lembra install` / `uninstall`, idempotentes e com `--dry-run`
 
-## 💡 Fase 3: o Claude consulta o próprio histórico
+## ✅ Fase 3: o Claude consulta o próprio histórico (v0.2)
 
-- [ ] **Servidor MCP** com as ferramentas `search_sessions`, `get_session` e `get_file`. Assim, "já fiz algo parecido?" vira uma pergunta normal para o Claude
-- [ ] **`/handoff <sessão>`**: resumo pronto (objetivo, decisões, arquivos, próximos passos) para continuar em outro terminal
-- [ ] **Resumos com IA** em lote via `claude -p --model haiku`, usando o login atual, sem chave de API
-- [ ] **Trabalho inacabado**: sessões cuja branch nunca recebeu push ou não virou PR
+- [x] Servidor MCP sem dependências com as ferramentas `search_history`, `list_sessions`, `get_session`, `handoff`, `list_files`, `get_file` e `pending_work`
+- [x] `/lembra:handoff <sessão>` e a skill de histórico
+- [x] `lembra summarize`: resumos com `claude -p --model haiku --no-session-persistence`, pesquisáveis
+- [x] `lembra pending`: branches sem push, com commits sem push, sujas ou sem PR
 
-## 💡 Ideias
+## ✅ Internacionalização (v0.3)
 
-- Relatório do dia e da semana por repo, pronto para daily ou reporte
-- Custo por projeto e por semana (o dado já está no banco)
-- Favoritos, tags e notas em sessões
-- Exportar uma sessão em Markdown para compartilhar
-- Mascarar segredos (tokens, senhas) na indexação
-- Busca semântica com embeddings locais
-- Extensão para Raycast e app de barra de menu
-- Capturar arquivos gerados via Bash (redirect, heredoc)
+- [x] Português do Brasil e inglês em toda a interface, nos erros, no handoff, nos resumos e no MCP
+- [x] `lembra lang`, `--lang`, `LEMBRA_LANG` e seletor PT/EN na página
+- [x] Catálogos tipados: chave faltando é erro de compilação ([docs/i18n.md](docs/i18n.md))
+
+## 💡 Próximas ideias
+
+- [ ] Relatório do dia e da semana por repo, pronto para daily ou reporte
+- [ ] Custo por projeto e por semana (o dado já está no banco)
+- [ ] Favoritos, tags e notas em sessões
+- [ ] Exportar uma sessão em Markdown
+- [ ] Mascarar segredos (tokens, senhas) na indexação
+- [ ] Busca semântica com embeddings locais
+- [ ] Extensão do Raycast e app de barra de menu
+- [ ] Capturar arquivos gerados via Bash (redirect, heredoc)
+- [ ] Serviços em segundo plano no Linux (systemd `--user`)
+- [ ] Mais idiomas (espanhol é o próximo candidato natural)
+- [ ] Rodar resumos automaticamente (opt-in) na indexação diária
 
 ## Limitações conhecidas
 
 - Edits sem `originalFile` e sem versão anterior conhecida ficam registrados sem conteúdo ("sem conteúdo completo").
 - Arquivos citados em prompts antigos são copiados no momento da indexação e podem ter mudado desde o prompt.
-- Sessões vindas só do `history.jsonl` não têm branch, respostas nem arquivos.
+- Sessões vindas só do `history.jsonl` não têm branch, respostas nem arquivos, e não podem ser retomadas (só via handoff).
 - Imagens lidas pelo Read não entram no cofre, porque o resultado da ferramenta não traz o caminho.
-- Testado em macOS. Linux deve funcionar (o CI roda nele); Windows não foi testado.
+- "Abrir no Terminal" usa o Terminal.app; iTerm e outros ainda não.
+- O layout estreito (celular, janela pequena) foi feito com media queries, mas ainda não foi conferido num aparelho real.
+- A primeira indexação de ~2,5 GB chega a ~750 MB de memória; as seguintes são incrementais e leves.
+- Testado em macOS. O CI roda em Linux; Windows não foi testado.

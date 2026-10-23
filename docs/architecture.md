@@ -4,50 +4,51 @@
 
 ```mermaid
 flowchart TB
-  subgraph input["Entrada (só leitura)"]
-    P["~/.claude/projects/&lt;dir&gt;/&lt;sessão&gt;.jsonl"]
-    S["~/.claude/projects/&lt;dir&gt;/&lt;sessão&gt;/subagents/*.jsonl"]
-    H["~/.claude/history.jsonl"]
+  subgraph input["~/.claude (só leitura)"]
+    P["projects/&lt;dir&gt;/&lt;sessão&gt;.jsonl"]
+    S["projects/&lt;dir&gt;/&lt;sessão&gt;/subagents/*.jsonl"]
+    H["history.jsonl"]
   end
   subgraph core["src/core"]
-    T["transcript.ts<br/>parser puro"]
+    T["transcript.ts · parser"]
     I["indexer.ts"]
     A["archive.ts"]
-    Q["search.ts · sessions.ts · files.ts · stats.ts"]
+    Q["search · sessions · files · handoff · pending · summarize · stats"]
   end
   subgraph data["~/.lembra"]
     DB[("lembra.db")]
     RAW["raw/**/*.jsonl.zst"]
+    CFG["config.json (idioma)"]
   end
-  P & S & H --> I
-  I --> T
+  P & S & H --> I --> T
   I --> DB
   I --> A --> RAW
   DB --> Q
   Q --> CLI["src/cli"]
-  Q -. Fase 2 .-> WEB["src/web (UI + API)"]
-  Q -. Fase 3 .-> MCP["servidor MCP"]
+  Q --> WEB["src/web (API + página)"]
+  Q --> MCP["src/mcp"]
+  I18N["src/i18n"] -.-> CLI & WEB & MCP & Q
+  PLUGIN["plugin/ (hooks · .mcp.json · skills)"] --> CLI
 ```
 
-`src/core` é a única camada que conhece o banco e os arquivos do Claude Code. As interfaces (a CLI hoje; a web e o MCP depois) consomem funções que devolvem dados.
+`src/core` é a única camada que conhece o banco e os arquivos do Claude Code. As interfaces (CLI, página, MCP) consomem funções que devolvem dados ou lançam `LembraError` com código, e traduzem tudo com os catálogos de `src/i18n`.
 
 ## Indexação (`indexer.ts`)
 
-1. `listSources` encontra os transcripts principais (`<dir>/<sessão>.jsonl`) e os de subagentes (`<dir>/<sessão>/subagents/*.jsonl`), ordenados do mais antigo para o mais novo. Assim, um Edit sempre encontra a versão escrita antes.
-2. Para cada arquivo, a tabela `sources` guarda `offset` (o byte até onde já foi lido) e `size`. Se o tamanho não mudou, o arquivo é pulado. Se mudou, só os bytes novos são lidos. Uma linha incompleta no fim fica para a próxima execução.
-3. Cada linha passa por `shouldParse`, que descarta registros de controle (`api-request-blob`, `permission-mode`…) olhando só o prefixo, sem `JSON.parse`. As demais vão para `parseRecord`.
-4. O que sai do parser é gravado com `INSERT OR IGNORE`, usando chaves estáveis (`uid` de mensagem e de arquivo). Por isso reprocessar é idempotente.
-5. Ao fim de cada arquivo, a sessão é atualizada: pasta, repo, branch, títulos, custo, primeiro e último prompt, contagem e intervalo de datas.
-6. `importHistory` lê o `history.jsonl` e cria sessões `source = 'history'` apenas para ids que não têm transcript, nem no disco nem no banco. Entradas da última hora são ignoradas porque o transcript pode ainda não existir.
-7. Com `archive: true` (`lembra index` e a primeira execução), cada arquivo alterado é copiado inteiro, comprimido com zstd, para `~/.lembra/raw/`, espelhando a estrutura de `~/.claude`.
+1. `listSources` encontra os transcripts principais (`<dir>/<sessão>.jsonl`) e os de subagentes (`<dir>/<sessão>/subagents/*.jsonl`), do mais antigo para o mais novo. Assim, um Edit sempre encontra a versão escrita antes dele.
+2. A tabela `sources` guarda `offset` (o último byte lido) e `size`. Arquivo com o mesmo tamanho é pulado. Se mudou, só os bytes novos são lidos, em blocos de 8 MB (`completeLines`). Uma linha maior que o bloco dobra o bloco; uma linha incompleta no fim fica para a próxima execução. O `size` só é gravado ao terminar, para que uma execução interrompida retome do offset.
+3. `shouldParse` descarta registros de controle (`api-request-blob`, `permission-mode`…) pelo prefixo, sem `JSON.parse`. As demais linhas vão para `parseRecord`.
+4. Tudo é gravado com `INSERT OR IGNORE` e chaves estáveis (`uid`), o que torna o reprocessamento idempotente. Quando `PARSER_VERSION` muda, `rereadIfParserChanged` zera os offsets e tudo é relido sem duplicar.
+5. Ao fim de cada bloco, a sessão é atualizada: pasta, repo, branch, títulos, custo, primeiro e último prompt, contagem e intervalo de datas.
+6. `importHistory` cria sessões `source = 'history'` para ids do `history.jsonl` sem transcript, ignorando a última hora (o transcript pode ainda não existir).
+7. Sessões cuja pasta fica dentro de `~/.lembra`, como os resumos gerados pelo próprio `lembra`, são ignoradas.
+8. Com `archive: true` (no `lembra index`, no hook e na primeira execução), cada arquivo alterado é copiado inteiro para `~/.lembra/raw/` via zstd em streaming: grava num `.partial` e renomeia no fim.
 
-`rereadIfParserChanged` compara `PARSER_VERSION` com a tabela `meta`. Quando o parser muda, zera os offsets e tudo é relido. As chaves únicas evitam duplicatas.
-
-Todo comando de leitura da CLI chama `indexAll` antes de rodar (sem arquivar). O custo é um `stat` por arquivo mais os bytes novos.
+Quem chama a indexação: a CLI antes de cada leitura; a página (no máximo a cada 5 s por requisição, e em segundo plano a cada 60 s); o MCP antes de cada ferramenta; os hooks `SessionEnd` e `PreCompact`; e o `launchd` uma vez por dia.
 
 ## Repositório de cada pasta (`repo.ts`)
 
-A pasta da sessão vira `owner/nome` pelo `git remote get-url origin`. Sem remote, usa o nome da raiz do git; sem git, o nome da pasta. Sufixos de worktree (`/.claude/worktrees/x`) são removidos antes. O resultado fica em cache na tabela `repos`.
+A pasta da sessão vira `owner/nome` pelo `git remote get-url origin`. Sem remote, usa o nome da raiz do git; sem git, o nome da pasta. Sufixos de worktree (`/.claude/worktrees/x`) são removidos antes, e o resultado fica em cache na tabela `repos`.
 
 ## Cofre de arquivos
 
@@ -57,16 +58,48 @@ A pasta da sessão vira `owner/nome` pelo `git remote get-url origin`. Sem remot
 | Edit | `edit` | `originalFile` com a troca aplicada. Sem `originalFile`, a última versão conhecida do caminho com a troca aplicada. Se a troca não se aplica, `sha` fica nulo |
 | Read de arquivo inteiro fora da pasta da sessão | `read` | `file.content` |
 | Caminho citado num prompt e existente no disco (até 10 MB) | `ref` | Cópia do arquivo no momento da indexação |
-| Imagem colada no prompt | `image` | Bytes da imagem (caminho relativo `imagem-<uuid>-<n>.<ext>`) |
+| Imagem colada no prompt | `image` | Bytes da imagem |
 
-Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`), então o mesmo conteúdo é guardado uma vez só.
+Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`).
 
 ## Busca (`search.ts`)
 
-- `toMatchQuery` transforma cada palavra em `"palavra"*` (prefixo) e mantém `"frases entre aspas"` como frase exata. Aspas internas são escapadas, e a sintaxe do FTS5 nunca vaza.
+- `toMatchQuery` transforma cada palavra em `"palavra"*` (prefixo) e mantém `"frases"` como frase exata. Aspas são escapadas, então a sintaxe do FTS5 nunca vaza.
 - O tokenizer é `unicode61 remove_diacritics 2`: "relatorio" encontra "Relatório".
-- O score é o `bm25` com pesos por papel: prompt ×2, resumo ×1,5, resposta ×1. Títulos (`sessions_fts`) entram com peso ×3.
-- Os resultados são agrupados por sessão, com até dois trechos cada. Os termos encontrados chegam marcados com `\x01…\x02`, e cada interface decide como destacá-los.
+- O score é o `bm25` com pesos por papel: prompt ×2; resumo do `/compact` e resumo do Haiku ×1,5; resposta ×1. Títulos (`sessions_fts`) entram com peso ×3.
+- Os resultados vêm agrupados por sessão, com até dois trechos. Os termos encontrados chegam marcados com `\x01…\x02`, e cada interface decide como destacar.
+
+## Handoff, resumos e pendências
+
+- **`handoff.ts`** monta um Markdown com pedido inicial, último resumo do `/compact`, últimos pedidos, última resposta e arquivos (com `lembra cat <id>`). É usado pela CLI, pela página e pela ferramenta MCP `handoff`.
+- **`summarize.ts`** escolhe sessões terminadas há mais de 30 minutos, com pelo menos 2 prompts e sem resumo (ou que mudaram depois dele). O prompt pede o resumo no idioma do usuário, e o resultado vai para `sessions.digest` e para `messages` (papel `digest`), onde fica pesquisável. O `Runner` padrão chama `claude -p --model haiku --no-session-persistence` a partir de `~/.lembra/summaries`.
+- **`pending.ts`** agrupa sessões recentes por raiz git e branch (ignorando `main`, `master`, `develop`, a branch padrão do remote e `HEAD`) e consulta um `GitProbe`: se a branch existe, se tem upstream, quantos commits estão à frente, se há alterações quando ela está checada, e o estado do PR via `gh`. PR mergeado ou aberto conta como entregue.
+
+## Página (`src/web`)
+
+- **`server.ts`** sobe o `Bun.serve` só em `127.0.0.1`. Ele serve a página (HTML import do Bun, que empacota TS, CSS e fontes), o `manifest.webmanifest`, os ícones e a API. A indexação roda em voo único: requisições simultâneas compartilham uma passada.
+- **`api.ts`** expõe `search`, `sessions/:id` (com `handoff` e `terminal`), `files` (com `raw` e `restore`), `facets`, `stats`, `pending`, `index` e `health`.
+- **Segurança:**
+  - Recusa qualquer `Host` que não seja `localhost:porta` ou `127.0.0.1:porta`, o que barra DNS rebinding.
+  - Escritas exigem o cabeçalho `x-lembra: 1` e origem própria. Como a API nunca libera CORS, outro site não consegue enviar esse cabeçalho.
+  - Erros esperados voltam traduzidos; os inesperados só são logados no servidor.
+- **Idioma:** cada requisição resolve o idioma por `?lang`, depois `Accept-Language`, depois o idioma escolhido no servidor.
+- **`ui/`** é TypeScript sem framework: `lib/dom.ts` (`h()` só cria nós de texto, sem XSS), estado na URL (`lib/state.ts`), componentes em `components/<nome>/` e tokens em `styles/tokens.css`. Detalhes no [guia de UI](ui-guidelines.md).
+
+## MCP (`src/mcp`)
+
+Servidor stdio sem dependências: JSON-RPC 2.0, uma mensagem por linha. Implementa `initialize` (devolve a versão de protocolo pedida pelo cliente), `ping`, `tools/list` e `tools/call`, e ignora notificações. Erros de uso viram resultado com `isError: true`, para que o Claude possa corrigir a chamada. As descrições das ferramentas ficam em inglês; os resultados saem no idioma configurado. O índice é atualizado antes de cada chamada.
+
+## Plugin e instalação
+
+- **`plugin/`** tem o manifesto, `hooks/hooks.json` (`SessionEnd` e `PreCompact` → `lembra hook`, sempre com saída 0), `.mcp.json` (`lembra mcp`) e as skills `handoff` e `history`. A raiz do repositório é um marketplace (`.claude-plugin/marketplace.json`), e o plugin é instalado como `lembra@lembra`, lido direto de `plugin/`.
+- **`src/system/install.ts`** executa os passos em ordem, cada um verificando antes de agir:
+  1. link em `~/.local/bin`;
+  2. `cleanupPeriodDays`, com backup do `settings.json`;
+  3. registro do marketplace e instalação do plugin;
+  4. dois LaunchAgents: `com.lembra.server` roda `ui --serve` no login e é reiniciado se cair; `com.lembra.index` roda `index` às 12:30.
+
+  Um agente é recarregado se o plist mudou ou se o `launchd` não o tem carregado (`launchctl print`). O `bootstrap` é repetido enquanto o `launchd` libera a instância anterior. Os plists levam o `PATH` e o `LANG` do momento da instalação.
 
 ## Schema (`db.ts`)
 
@@ -75,17 +108,18 @@ Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`), ent�
 | `meta` | `parser_version` |
 | `sources` | Offset, tamanho lido e tamanho arquivado de cada arquivo de origem |
 | `repos` | Cache de pasta → repositório |
-| `sessions` | Uma linha por sessão (`source` = `transcript` ou `history`), com título derivado |
-| `messages` + `messages_fts` | Prompts, respostas e resumos, com o índice FTS5 mantido por triggers |
-| `sessions_fts` | Índice FTS5 dos títulos |
+| `sessions` | Uma linha por sessão (`source` = `transcript` ou `history`), título derivado, `digest`/`digest_at` |
+| `messages` + `messages_fts` | Prompts, respostas, resumos do `/compact` e do Haiku; FTS5 mantido por triggers |
+| `sessions_fts` | FTS5 dos títulos |
 | `blobs` | Conteúdo por hash, comprimido com zstd |
 | `files` | Cada operação de arquivo: caminho, tipo, sessão, data e o `sha` da versão resultante |
 
-O banco usa WAL e `busy_timeout`, o que permite duas execuções simultâneas (por exemplo, um hook e um terminal). A pasta `~/.lembra` é criada com permissão `700`.
+O banco usa WAL e `busy_timeout`, o que permite processos simultâneos (hook, página, terminal). A pasta `~/.lembra` tem permissão `700`.
 
 ## Decisões
 
-- **Bun sem dependências de runtime.** `bun:sqlite`, `Bun.zstdCompressSync`, `Bun.Glob` e `Bun.CryptoHasher` cobrem tudo, o que deixa a instalação trivial e o início rápido.
-- **SQLite local em vez de serviço.** Os dados são sensíveis (tudo que já foi colado num prompt), então nada sai da máquina.
-- **CLI primeiro.** O núcleo foi desenhado para a UI web e o MCP reaproveitarem as mesmas funções.
-- **Banco descartável, origem preservada.** O índice pode ser apagado e reconstruído; o que não pode ser perdido (os transcripts) fica na cópia bruta.
+- **Bun sem dependências de runtime**, exceto as fontes da página. `bun:sqlite`, zstd, `Bun.Glob`, `Bun.serve` com HTML imports e `Bun.CryptoHasher` cobrem o resto.
+- **Local primeiro.** Os dados são sensíveis (tudo que já foi colado num prompt), então nada sai da máquina; a única exceção são os resumos, que usam o `claude -p` do próprio usuário e só quando ele pede.
+- **Um núcleo, várias interfaces.** CLI, página e MCP chamam as mesmas funções; nenhuma delas acessa SQL diretamente, exceto via `src/core`.
+- **Banco descartável, origem preservada.** O índice pode ser apagado e reconstruído; o que não pode se perder (os transcripts) fica na cópia bruta.
+- **Textos com tipo.** Catálogos de i18n tipados pelo inglês tornam impossível esquecer uma tradução sem quebrar a compilação.
