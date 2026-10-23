@@ -1,7 +1,8 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Io, Services } from "../../src/cli/commands";
+import type { Io } from "../../src/cli/commands";
+import type { Services } from "../../src/core/services";
 import type { Paths } from "../../src/core/paths";
 import type { BranchFacts } from "../../src/core/pending";
 

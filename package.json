@@ -1,6 +1,6 @@
 {
   "name": "lembra",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "O histórico permanente e pesquisável do Claude Code: busca prompts, recupera arquivos apagados e retoma sessões.",
   "private": true,
   "type": "module",

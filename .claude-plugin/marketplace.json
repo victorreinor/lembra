@@ -1,0 +1,14 @@
+{
+  "name": "lembra",
+  "description": "Plugins do lembra: histórico permanente e pesquisável do Claude Code.",
+  "owner": {
+    "name": "Victor Reinor"
+  },
+  "plugins": [
+    {
+      "name": "lembra",
+      "source": "./plugin",
+      "description": "Histórico permanente e pesquisável do Claude Code: busca via MCP, /lembra:handoff e hooks que mantêm o índice em dia."
+    }
+  ]
+}

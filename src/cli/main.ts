@@ -6,7 +6,7 @@ import { indexAll } from "../core/indexer";
 import { defaultPaths, type Paths } from "../core/paths";
 import { systemGit } from "../core/pending";
 import { claudeRunner } from "../core/summarize";
-import { COMMANDS, type Io, type Options, type Services } from "./commands";
+import { COMMANDS, SELF_INDEXING, type Io, type Options, type Services } from "./commands";
 import { dim, red } from "./format";
 import { HELP } from "./help";
 
@@ -67,7 +67,7 @@ export async function run(
 
   const db = openDb(paths.dataDir);
   try {
-    if (name !== "index") await refresh(db, paths, io);
+    if (!SELF_INDEXING.has(name)) await refresh(db, paths, io);
     return (await COMMANDS[name]!({ db, paths, options, args, io, services })) ?? 0;
   } catch (error) {
     if (!(error instanceof LembraError)) throw error;

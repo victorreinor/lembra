@@ -22,6 +22,10 @@ Manutenção
   lembra index                  indexa e arquiva tudo (incremental)
   lembra stats                  tamanho do cofre e retenção do Claude Code
 
+Usados pelo plugin do Claude Code
+  lembra mcp                    servidor MCP: o próprio Claude consulta o histórico
+  lembra hook                   indexa e arquiva ao fim da sessão e antes do /compact
+
 Opções
   -r, --repo <nome>            filtra por repositório (trecho do nome)
   -b, --branch <nome>          filtra por branch (trecho do nome)

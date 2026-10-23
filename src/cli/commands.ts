@@ -7,14 +7,19 @@ import { isMissing, latestFiles, readStoredFile, resolveFile, restoreFile, sessi
 import { buildHandoff } from "../core/handoff";
 import { indexAll } from "../core/indexer";
 import type { Paths } from "../core/paths";
-import { describeReasons, findPending, type GitProbe } from "../core/pending";
+import { describeReasons, findPending } from "../core/pending";
 import { parseDate, type Filters } from "../core/query";
 import { search } from "../core/search";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
+import type { Services } from "../core/services";
 import { collectStats } from "../core/stats";
-import { sessionsToSummarize, summarizeSession, type Runner } from "../core/summarize";
+import { sessionsToSummarize, summarizeSession } from "../core/summarize";
+import { createMcpHandler, serveStdio } from "../mcp/server";
 import { copyToClipboard } from "../system/os";
+import { VERSION } from "../version";
 import { bold, bytes, count, cyan, dim, green, highlight, oneLine, red, repoName, shortPath, when, yellow } from "./format";
+
+export type { Services } from "../core/services";
 
 export interface Io {
   out(line?: string): void;
@@ -22,12 +27,6 @@ export interface Io {
   write(data: Uint8Array): void;
   // A real terminal: `resume` may hand it over to claude.
   interactive: boolean;
-}
-
-// Side effects that reach outside the vault, injected so tests never call git, gh or Claude.
-export interface Services {
-  git: GitProbe;
-  summarizer(model: string): Runner;
 }
 
 export interface Options {
@@ -74,7 +73,29 @@ export const COMMANDS: Record<string, Command> = {
   summarize: summarizeCommand,
   index: indexCommand,
   stats: statsCommand,
+  mcp: mcpCommand,
+  hook: hookCommand,
 };
+
+// Commands that manage indexing themselves instead of the automatic refresh before each read.
+export const SELF_INDEXING = new Set(["index", "mcp", "hook"]);
+
+// Started by Claude Code (plugin .mcp.json). Each tool call refreshes the index first.
+async function mcpCommand({ db, paths, services }: Context) {
+  const refresh = async () => void (await indexAll(db, paths));
+  await serveStdio(createMcpHandler({ db, paths, services, version: VERSION, refresh }));
+}
+
+// Run by Claude Code's SessionEnd and PreCompact hooks: index and archive what just happened.
+// Always exits 0, so a hiccup here never disturbs the session.
+async function hookCommand({ db, paths, io }: Context) {
+  try {
+    await indexAll(db, paths, { archive: true });
+  } catch (error) {
+    io.err(`lembra hook: ${(error as Error).message}`);
+  }
+  return 0;
+}
 
 function searchCommand({ db, options, args, io }: Context) {
   const query = args.join(" ").trim();

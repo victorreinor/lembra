@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v lembra >/dev/null 2>&1 && lembra hook || true",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "command -v lembra >/dev/null 2>&1 && lembra hook || true",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
