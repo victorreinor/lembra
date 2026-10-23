@@ -3,7 +3,10 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import type { FileDTO, ResultDTO, SessionDetailResponse, SessionDTO } from "../../src/web/types";
 
 // A DOM only for this file; component modules touch `document` only when called.
-beforeAll(() => GlobalRegistrator.register({ url: "http://localhost:4747/" }));
+beforeAll(async () => {
+  GlobalRegistrator.register({ url: "http://localhost:4747/" });
+  (await import("../../src/web/ui/lib/i18n")).setLocale("pt-BR");
+});
 afterAll(() => GlobalRegistrator.unregister());
 
 const { h, highlighted } = await import("../../src/web/ui/lib/dom");
@@ -128,6 +131,19 @@ describe("SessionDetail", () => {
     expect(labels).toEqual(["Retomar no Terminal", "Copiar comando", "Copiar handoff"]);
     expect(el.querySelector(".session-detail__command")!.textContent).toBe(session.resumeCommand!);
     expect(el.textContent).toContain("Arquivos · 1");
+  });
+
+  test("renders in English when the page language is English", async () => {
+    const { setLocale } = await import("../../src/web/ui/lib/i18n");
+    setLocale("en");
+    try {
+      const el = SessionDetail({ data, ...callbacks });
+      const labels = [...el.querySelectorAll(".session-detail__actions .button__label")].map((n) => n.textContent);
+      expect(labels).toEqual(["Resume in Terminal", "Copy command", "Copy handoff"]);
+      expect(el.textContent).toContain("Files · 1");
+    } finally {
+      setLocale("pt-BR");
+    }
   });
 
   test("prompt-only sessions can only be handed off", () => {

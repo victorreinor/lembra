@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "lembra",
-  "version": "0.2.0",
-  "description": "Histórico permanente e pesquisável do Claude Code: o Claude consulta suas sessões antigas, /lembra:handoff continua outra sessão e os hooks mantêm o índice em dia. Requer o comando lembra no PATH.",
+  "version": "0.3.0",
+  "description": "Permanent, searchable history for Claude Code: Claude searches your past sessions, /lembra:handoff continues another session and hooks keep the index fresh. Requires the lembra command on PATH. Histórico permanente e pesquisável do Claude Code.",
   "author": {
     "name": "Victor Reinor"
   },

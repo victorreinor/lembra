@@ -13,6 +13,7 @@ import { findSession, getSession, listFacets, listSessions, resumeCommand, sessi
 import { collectStats } from "../core/stats";
 import { repoName, shortPath } from "../core/text";
 import { runInTerminal } from "../system/os";
+import { resolveLocale, type Locale } from "../i18n/locale";
 import { VERSION } from "../version";
 import type { FileDTO, SessionDTO } from "./types";
 
@@ -25,6 +26,8 @@ export interface ApiOptions {
   // Picks up what Claude Code wrote since the last call; the server debounces it.
   refresh(): Promise<IndexStats | void>;
   lastIndexedAt(): string | null;
+  // Language chosen explicitly (lembra lang, LEMBRA_LANG, --lang); null leaves it to each browser.
+  chosenLocale(): Locale | null;
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
@@ -103,13 +106,13 @@ export function createApi(opts: ApiOptions) {
   const { db, paths, services } = opts;
   const hosts = new Set(opts.hosts);
 
-  async function route(req: Request, url: URL): Promise<Response> {
+  async function route(req: Request, url: URL, locale: Locale): Promise<Response> {
     const params = url.searchParams;
     const parts = url.pathname.split("/").filter(Boolean).slice(1); // drop "api"
     const [resource, id, action] = parts;
     const get = req.method === "GET";
 
-    if (resource === "health" && get) return json({ app: "lembra", version: VERSION });
+    if (resource === "health" && get) return json({ app: "lembra", version: VERSION, lang: opts.chosenLocale() });
 
     if (resource === "search" && get) {
       await opts.refresh();
@@ -133,9 +136,9 @@ export function createApi(opts: ApiOptions) {
         const files = sessionFiles(db, session.id).map(toFileDTO);
         return json({ session: toSessionDTO(session), messages, files });
       }
-      if (action === "handoff" && get) return json({ text: buildHandoff(db, session) });
+      if (action === "handoff" && get) return json({ text: buildHandoff(db, session, locale) });
       if (action === "terminal" && !get) {
-        if (session.source !== "transcript") throw new LembraError("Esta sessão só tem os prompts; use o handoff para continuar.");
+        if (session.source !== "transcript") throw new LembraError("promptsOnly");
         await runInTerminal(resumeCommand(session));
         return json({ ok: true });
       }
@@ -176,7 +179,7 @@ export function createApi(opts: ApiOptions) {
         items: items.map((item) => ({
           repoName: repoName(item.repo),
           branch: item.branch,
-          reasons: describeReasons(item),
+          reasons: describeReasons(item, locale),
           sessions: item.sessions,
           lastSession: toSessionDTO(getSession(db, item.lastSession.id) ?? item.lastSession),
         })),
@@ -191,6 +194,8 @@ export function createApi(opts: ApiOptions) {
   return {
     async handle(req: Request): Promise<Response> {
       const url = new URL(req.url);
+      // The page sends its language; other clients get the chosen one, else English.
+      const locale = resolveLocale(url.searchParams.get("lang"), req.headers.get("accept-language")?.split(",")[0], opts.chosenLocale());
       // Only this machine's browser, on the address the page was served from.
       if (!hosts.has(req.headers.get("host") ?? "")) return fail("Host não permitido.", 403);
       if (req.method !== "GET") {
@@ -199,9 +204,9 @@ export function createApi(opts: ApiOptions) {
         if (req.headers.get("x-lembra") !== "1" || (origin && !hosts.has(new URL(origin).host))) return fail("Requisição recusada.", 403);
       }
       try {
-        return await route(req, url);
+        return await route(req, url, locale);
       } catch (error) {
-        if (error instanceof LembraError) return fail(error.message, 400);
+        if (error instanceof LembraError) return fail(error.in(locale), 400);
         console.error(error);
         return fail("Erro interno; veja o terminal do lembra.", 500);
       }

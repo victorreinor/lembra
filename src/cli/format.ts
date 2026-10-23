@@ -1,6 +1,6 @@
 import { bracketMatches } from "../core/text";
 
-export { bytes, count, oneLine, repoName, shortPath, when } from "../core/text";
+// Terminal colors. Text helpers (dates, sizes, paths) live in core/text.
 
 const color = Boolean(process.stdout.isTTY) && !process.env.NO_COLOR;
 const paint = (code: string) => (text: string) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);

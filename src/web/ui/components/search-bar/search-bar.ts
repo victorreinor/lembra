@@ -1,5 +1,6 @@
 import { h } from "../../lib/dom";
 import { icon } from "../../lib/icons";
+import { t } from "../../lib/i18n";
 import { Kbd } from "../kbd/kbd";
 
 /**
@@ -23,7 +24,7 @@ export function SearchBar(props: SearchBarProps) {
     placeholder: props.placeholder,
     autocomplete: "off",
     spellcheck: "false",
-    "aria-label": "Buscar no histórico",
+    "aria-label": t.searchLabel,
   });
   input.addEventListener("input", () => props.onInput(input.value));
   input.addEventListener("keydown", (event) => {

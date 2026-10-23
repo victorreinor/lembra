@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { indexAll, type IndexStats } from "../core/indexer";
 import type { Paths } from "../core/paths";
 import type { Services } from "../core/services";
+import { readConfig } from "../core/config";
+import { matchLocale, type Locale } from "../i18n/locale";
 import { createApi } from "./api";
 import page from "./ui/index.html";
 
@@ -16,8 +18,7 @@ const BACKGROUND_EVERY_MS = 60_000;
 export const MANIFEST = {
   name: "lembra",
   short_name: "lembra",
-  description: "O histórico permanente e pesquisável do Claude Code",
-  lang: "pt-BR",
+  description: "Permanent, searchable history for Claude Code",
   start_url: "/",
   display: "standalone",
   background_color: "#f4f1ea",
@@ -34,6 +35,8 @@ export interface ServerOptions {
   paths: Paths;
   services: Services;
   port: number;
+  // Set by `lembra ui --lang`; otherwise LEMBRA_LANG or `lembra lang`, read on every request.
+  locale?: Locale;
 }
 
 export function startServer(opts: ServerOptions) {
@@ -75,6 +78,7 @@ export function startServer(opts: ServerOptions) {
     hosts: [`127.0.0.1:${server.port}`, `localhost:${server.port}`],
     refresh,
     lastIndexedAt: () => indexedAt,
+    chosenLocale: () => opts.locale ?? matchLocale(process.env.LEMBRA_LANG) ?? readConfig(opts.paths.dataDir).lang ?? null,
   });
 
   void index();

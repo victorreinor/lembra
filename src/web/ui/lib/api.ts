@@ -6,11 +6,13 @@ import type {
   SessionDetailResponse,
   StatsResponse,
 } from "../../types";
+import { locale } from "./i18n";
 
-// Typed client for src/web/api.ts. Every call sends x-lembra, which the server requires for writes.
+// Typed client for src/web/api.ts. Every call sends x-lembra (required for writes) and the page's language,
+// so server-made text (errors, handoff, pending reasons) matches the page.
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = { "x-lembra": "1" };
+  const headers: Record<string, string> = { "x-lembra": "1", "accept-language": locale };
   if (init.body) headers["content-type"] = "application/json";
   const res = await fetch(path, { ...init, headers });
   const body = await res.json().catch(() => ({}));
@@ -32,6 +34,7 @@ export interface ListParams {
 }
 
 export const api = {
+  health: () => request<{ app: string; version: string; lang: string | null }>("/api/health"),
   search: (params: ListParams, signal?: AbortSignal) => request<SearchResponse>(`/api/search?${query({ ...params })}`, { signal }),
   session: (id: string, replies = false) => request<SessionDetailResponse>(`/api/sessions/${encodeURIComponent(id)}?${query({ replies })}`),
   handoff: (id: string) => request<{ text: string }>(`/api/sessions/${encodeURIComponent(id)}/handoff`),

@@ -6,9 +6,12 @@ import { indexAll } from "../core/indexer";
 import { defaultPaths, type Paths } from "../core/paths";
 import { systemGit } from "../core/pending";
 import { claudeRunner } from "../core/summarize";
+import { textFormat } from "../core/text";
+import { CLI, type CliCatalog } from "../i18n/cli";
+import { LOCALES, matchLocale } from "../i18n/locale";
+import { preferredLocale } from "../i18n/system";
 import { COMMANDS, SELF_INDEXING, type Io, type Options, type Services } from "./commands";
 import { dim, red } from "./format";
-import { HELP } from "./help";
 
 const OPTIONS = {
   repo: { type: "string", short: "r" },
@@ -27,6 +30,7 @@ const OPTIONS = {
   port: { type: "string" },
   serve: { type: "boolean" },
   "dry-run": { type: "boolean" },
+  lang: { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -54,11 +58,18 @@ export async function run(
     ({ values: options, positionals } = parseArgs({ args: argv, allowPositionals: true, options: OPTIONS }));
   } catch (error) {
     io.err(red((error as Error).message));
-    io.err(dim("Veja: lembra --help"));
+    io.err(dim(CLI[preferredLocale({ dataDir: paths.dataDir })].seeHelp));
+    return 2;
+  }
+
+  const locale = preferredLocale({ flag: options.lang, dataDir: paths.dataDir });
+  const t: CliCatalog = CLI[locale];
+  if (options.lang && !matchLocale(options.lang)) {
+    io.err(red(new LembraError("invalidLanguage", { value: options.lang, supported: LOCALES.join(", ") }).in(locale)));
     return 2;
   }
   if (options.help || positionals[0] === "help") {
-    io.out(HELP);
+    io.out(t.help);
     return 0;
   }
 
@@ -70,11 +81,11 @@ export async function run(
 
   const db = openDb(paths.dataDir);
   try {
-    if (!SELF_INDEXING.has(name)) await refresh(db, paths, io);
-    return (await COMMANDS[name]!({ db, paths, options, args, io, services })) ?? 0;
+    if (!SELF_INDEXING.has(name)) await refresh(db, paths, io, t);
+    return (await COMMANDS[name]!({ db, paths, options, args, io, services, locale, t, fmt: textFormat(locale) })) ?? 0;
   } catch (error) {
     if (!(error instanceof LembraError)) throw error;
-    io.err(red(error.message));
+    io.err(red(error.in(locale)));
     return 1;
   } finally {
     db.close();
@@ -82,8 +93,8 @@ export async function run(
 }
 
 // Every read starts by picking up whatever Claude Code wrote since the last run (usually a few lines).
-async function refresh(db: Database, paths: Paths, io: Io) {
+async function refresh(db: Database, paths: Paths, io: Io, t: CliCatalog) {
   const firstRun = !db.query("SELECT 1 FROM sources LIMIT 1").get();
-  if (firstRun) io.err(dim("Primeira indexação do histórico; pode levar um minuto…"));
+  if (firstRun) io.err(dim(t.firstRun));
   await indexAll(db, paths, { archive: firstRun });
 }

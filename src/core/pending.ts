@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import { CORE } from "../i18n/core";
+import type { Locale } from "../i18n/locale";
 import { WORKTREE_SUFFIX } from "./repo";
 import type { Session } from "./sessions";
 
@@ -31,18 +33,11 @@ export interface PendingItem {
   sessions: number;
 }
 
-export const REASON_LABELS: Record<PendingReason, string> = {
-  "no-push": "branch nunca enviada",
-  ahead: "commits sem push",
-  dirty: "alterações não commitadas",
-  "no-pr": "sem PR",
-  "pr-closed": "PR fechado sem merge",
-};
-
 const MAINLINE = new Set(["main", "master", "develop", "HEAD"]);
 
-export function describeReasons(item: Pick<PendingItem, "reasons" | "facts">): string[] {
-  return item.reasons.map((reason) => (reason === "ahead" ? `${item.facts.ahead} ${REASON_LABELS.ahead}` : REASON_LABELS[reason]));
+export function describeReasons(item: Pick<PendingItem, "reasons" | "facts">, locale: Locale): string[] {
+  const labels = CORE[locale].pending;
+  return item.reasons.map((reason) => (reason === "ahead" ? labels.ahead(item.facts.ahead) : labels[reason]()));
 }
 
 // A branch is pending until its work is merged; an open PR counts as delivered.

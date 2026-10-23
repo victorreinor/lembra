@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { CliCatalog } from "../i18n/cli";
 
 // `lembra install` / `lembra uninstall`: each step checks before it changes anything, so running
 // either command twice is safe. Everything that touches the system goes through InstallEnv.
@@ -22,25 +23,31 @@ export interface InstallEnv {
   cliEntry: string;
   bunPath: string;
   platform: NodeJS.Platform;
-  // PATH baked into the launchd agents, so they find git, gh, claude and osascript.
+  // Environment baked into the launchd agents, so they find git, gh, claude and osascript.
   path: string;
+  lang?: string;
   uid: number;
   exec: Exec;
   hasClaude: boolean;
 }
 
+export type StepId = keyof CliCatalog["install"]["steps"];
 export type StepStatus = "ok" | "changed" | "skipped" | "failed";
 
 export interface StepResult {
-  step: string;
+  step: StepId;
   status: StepStatus;
   detail: string;
 }
+
+type Text = CliCatalog["install"];
 
 export const RETENTION_DAYS = 3650;
 export const PLUGIN_ID = "lembra@lembra";
 export const AGENTS = { server: "com.lembra.server", index: "com.lembra.index" } as const;
 const DAILY_INDEX = { Hour: 12, Minute: 30 };
+const BOOTSTRAP_RETRIES = 15;
+const BOOTSTRAP_RETRY_MS = 400;
 
 const linkPath = (env: InstallEnv) => join(env.home, ".local", "bin", "lembra");
 const agentPath = (env: InstallEnv, label: string) => join(env.home, "Library", "LaunchAgents", `${label}.plist`);
@@ -53,7 +60,7 @@ const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt
 export interface AgentSpec {
   label: string;
   args: string[];
-  path: string;
+  env: Record<string, string>;
   log: string;
   // Restart when it crashes (the web server), as opposed to a scheduled job.
   keepAlive?: boolean;
@@ -61,6 +68,7 @@ export interface AgentSpec {
 }
 
 export function launchAgentPlist(spec: AgentSpec): string {
+  const env = Object.entries(spec.env).map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`);
   const lines = [
     `  <key>Label</key><string>${xml(spec.label)}</string>`,
     "  <key>ProgramArguments</key>",
@@ -68,7 +76,7 @@ export function launchAgentPlist(spec: AgentSpec): string {
     ...spec.args.map((arg) => `    <string>${xml(arg)}</string>`),
     "  </array>",
     "  <key>EnvironmentVariables</key>",
-    `  <dict><key>PATH</key><string>${xml(spec.path)}</string></dict>`,
+    `  <dict>${env.join("")}</dict>`,
     `  <key>StandardOutPath</key><string>${xml(spec.log)}</string>`,
     `  <key>StandardErrorPath</key><string>${xml(spec.log)}</string>`,
     `  <key>RunAtLoad</key><${spec.keepAlive ? "true" : "false"}/>`,
@@ -95,29 +103,15 @@ export function launchAgentPlist(spec: AgentSpec): string {
 
 function agentSpecs(env: InstallEnv): AgentSpec[] {
   const logs = join(env.dataDir, "logs");
+  const vars: Record<string, string> = { PATH: env.path };
+  if (env.lang) vars.LANG = env.lang;
   return [
-    { label: AGENTS.server, args: [env.bunPath, env.cliEntry, "ui", "--serve"], path: env.path, log: join(logs, "server.log"), keepAlive: true },
-    { label: AGENTS.index, args: [env.bunPath, env.cliEntry, "index"], path: env.path, log: join(logs, "index.log"), calendar: DAILY_INDEX },
+    { label: AGENTS.server, args: [env.bunPath, env.cliEntry, "ui", "--serve"], env: vars, log: join(logs, "server.log"), keepAlive: true },
+    { label: AGENTS.index, args: [env.bunPath, env.cliEntry, "index"], env: vars, log: join(logs, "index.log"), calendar: DAILY_INDEX },
   ];
 }
 
 // ── steps ───────────────────────────────────────────────────────────────
-
-async function linkCommand(env: InstallEnv, dryRun: boolean): Promise<StepResult> {
-  const step = "comando no PATH";
-  const target = linkPath(env);
-  const linked = existsSync(target) || isSymlink(target);
-  if (linked) {
-    if (isSymlink(target) && readlinkSync(target) === env.cliEntry) return { step, status: "ok", detail: `${target} → ${env.cliEntry}` };
-    return { step, status: "skipped", detail: `${target} já existe e aponta para outro lugar; deixei como está` };
-  }
-  if (!dryRun) {
-    mkdirSync(join(env.home, ".local", "bin"), { recursive: true });
-    symlinkSync(env.cliEntry, target);
-  }
-  const onPath = env.path.split(":").includes(join(env.home, ".local", "bin"));
-  return { step, status: "changed", detail: `${target} → ${env.cliEntry}${onPath ? "" : " (adicione ~/.local/bin ao PATH)"}` };
-}
 
 function isSymlink(path: string): boolean {
   try {
@@ -127,31 +121,32 @@ function isSymlink(path: string): boolean {
   }
 }
 
-async function ensureRetention(env: InstallEnv, dryRun: boolean): Promise<StepResult> {
-  const step = "retenção do Claude Code";
+async function linkCommand(env: InstallEnv, t: Text, dryRun: boolean): Promise<StepResult> {
+  const target = linkPath(env);
+  if (existsSync(target) || isSymlink(target)) {
+    if (isSymlink(target) && readlinkSync(target) === env.cliEntry) return { step: "link", status: "ok", detail: t.linkOk(target, env.cliEntry) };
+    return { step: "link", status: "skipped", detail: t.linkForeign(target) };
+  }
+  if (!dryRun) {
+    mkdirSync(join(env.home, ".local", "bin"), { recursive: true });
+    symlinkSync(env.cliEntry, target);
+  }
+  const onPath = env.path.split(":").includes(join(env.home, ".local", "bin"));
+  return { step: "link", status: "changed", detail: t.linkOk(target, env.cliEntry) + (onPath ? "" : t.linkAddPath) };
+}
+
+async function ensureRetention(env: InstallEnv, t: Text, dryRun: boolean): Promise<StepResult> {
   const file = settingsPath(env);
   const settings = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
   if (typeof settings.cleanupPeriodDays === "number" && settings.cleanupPeriodDays >= RETENTION_DAYS) {
-    return { step, status: "ok", detail: `cleanupPeriodDays = ${settings.cleanupPeriodDays}` };
+    return { step: "retention", status: "ok", detail: t.retentionOk(settings.cleanupPeriodDays) };
   }
   if (!dryRun) {
     if (existsSync(file)) copyFileSync(file, `${file}.lembra-backup`);
     mkdirSync(env.claudeDir, { recursive: true });
     writeFileSync(file, `${JSON.stringify({ ...settings, cleanupPeriodDays: RETENTION_DAYS }, null, 2)}\n`);
   }
-  return { step, status: "changed", detail: `cleanupPeriodDays = ${RETENTION_DAYS} (backup em settings.json.lembra-backup)` };
-}
-
-async function installPlugin(env: InstallEnv, dryRun: boolean): Promise<StepResult> {
-  const step = "plugin do Claude Code";
-  if (!env.hasClaude) return { step, status: "skipped", detail: "o comando claude não está no PATH" };
-  if (await pluginInstalled(env)) return { step, status: "ok", detail: `${PLUGIN_ID} instalado (MCP, hooks e /lembra:handoff)` };
-  if (dryRun) return { step, status: "changed", detail: `instalaria ${PLUGIN_ID} a partir de ${env.repoRoot}` };
-  const added = await env.exec(["claude", "plugin", "marketplace", "add", env.repoRoot]);
-  if (added.code !== 0 && !/already/i.test(added.out)) return { step, status: "failed", detail: added.out };
-  const installed = await env.exec(["claude", "plugin", "install", PLUGIN_ID, "--scope", "user"]);
-  if (installed.code !== 0) return { step, status: "failed", detail: installed.out };
-  return { step, status: "changed", detail: `${PLUGIN_ID} instalado; vale a partir da próxima sessão do Claude Code` };
+  return { step: "retention", status: "changed", detail: t.retentionSet(RETENTION_DAYS) };
 }
 
 async function pluginInstalled(env: InstallEnv): Promise<boolean> {
@@ -159,34 +154,55 @@ async function pluginInstalled(env: InstallEnv): Promise<boolean> {
   return code === 0 && out.includes(`"${PLUGIN_ID}"`);
 }
 
-async function installAgents(env: InstallEnv, dryRun: boolean): Promise<StepResult> {
-  const step = "serviços em segundo plano";
-  if (env.platform !== "darwin") return { step, status: "skipped", detail: "launchd só existe no macOS; rode lembra ui manualmente" };
-  const specs = agentSpecs(env);
-  const stale = specs.filter((spec) => !existsSync(agentPath(env, spec.label)) || readFileSync(agentPath(env, spec.label), "utf8") !== launchAgentPlist(spec));
-  if (!stale.length) return { step, status: "ok", detail: "página em localhost:4747 e indexação diária às 12:30" };
-  if (dryRun) return { step, status: "changed", detail: `criaria ${stale.map((spec) => spec.label).join(" e ")}` };
+async function installPlugin(env: InstallEnv, t: Text, dryRun: boolean): Promise<StepResult> {
+  if (!env.hasClaude) return { step: "plugin", status: "skipped", detail: t.noClaude };
+  if (await pluginInstalled(env)) return { step: "plugin", status: "ok", detail: t.pluginOk(PLUGIN_ID) };
+  if (dryRun) return { step: "plugin", status: "changed", detail: t.pluginWould(PLUGIN_ID, env.repoRoot) };
+  const added = await env.exec(["claude", "plugin", "marketplace", "add", env.repoRoot]);
+  if (added.code !== 0 && !/already/i.test(added.out)) return { step: "plugin", status: "failed", detail: added.out };
+  const installed = await env.exec(["claude", "plugin", "install", PLUGIN_ID, "--scope", "user"]);
+  if (installed.code !== 0) return { step: "plugin", status: "failed", detail: installed.out };
+  return { step: "plugin", status: "changed", detail: t.pluginInstalled(PLUGIN_ID) };
+}
+
+async function installAgents(env: InstallEnv, t: Text, dryRun: boolean): Promise<StepResult> {
+  if (env.platform !== "darwin") return { step: "agents", status: "skipped", detail: t.agentsNotMac };
+  // An agent needs work when its plist is missing or outdated, or when launchd does not have it loaded.
+  const stale: AgentSpec[] = [];
+  for (const spec of agentSpecs(env)) {
+    const plist = agentPath(env, spec.label);
+    const current = existsSync(plist) && readFileSync(plist, "utf8") === launchAgentPlist(spec);
+    const loaded = (await env.exec(["launchctl", "print", `gui/${env.uid}/${spec.label}`])).code === 0;
+    if (!current || !loaded) stale.push(spec);
+  }
+  if (!stale.length) return { step: "agents", status: "ok", detail: t.agentsOk };
+  if (dryRun) return { step: "agents", status: "changed", detail: t.agentsWould(stale.map((spec) => spec.label).join(", ")) };
   mkdirSync(join(env.dataDir, "logs"), { recursive: true });
   mkdirSync(join(env.home, "Library", "LaunchAgents"), { recursive: true });
   for (const spec of stale) {
     const plist = agentPath(env, spec.label);
     writeFileSync(plist, launchAgentPlist(spec));
     await env.exec(["launchctl", "bootout", `gui/${env.uid}/${spec.label}`]);
-    const loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
-    if (loaded.code !== 0) return { step, status: "failed", detail: `${spec.label}: ${loaded.out}` };
+    // bootout finishes asynchronously; bootstrapping before the old instance is gone fails with EIO.
+    let loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
+    for (let attempt = 0; loaded.code !== 0 && attempt < BOOTSTRAP_RETRIES; attempt++) {
+      await Bun.sleep(BOOTSTRAP_RETRY_MS);
+      loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
+    }
+    if (loaded.code !== 0) return { step: "agents", status: "failed", detail: `${spec.label}: ${loaded.out}` };
   }
-  return { step, status: "changed", detail: "página em localhost:4747 (sobe no login) e indexação diária às 12:30" };
+  return { step: "agents", status: "changed", detail: t.agentsInstalled };
 }
 
-export async function install(env: InstallEnv, opts: { dryRun?: boolean } = {}): Promise<StepResult[]> {
+export async function install(env: InstallEnv, t: Text, opts: { dryRun?: boolean } = {}): Promise<StepResult[]> {
   const dryRun = opts.dryRun ?? false;
   const results: StepResult[] = [];
-  for (const step of [linkCommand, ensureRetention, installPlugin, installAgents]) results.push(await step(env, dryRun));
+  for (const step of [linkCommand, ensureRetention, installPlugin, installAgents]) results.push(await step(env, t, dryRun));
   return results;
 }
 
 // Undoes install, except the retention setting and the data in ~/.lembra (the point of lembra).
-export async function uninstall(env: InstallEnv): Promise<StepResult[]> {
+export async function uninstall(env: InstallEnv, t: Text): Promise<StepResult[]> {
   const results: StepResult[] = [];
 
   if (env.platform === "darwin") {
@@ -198,23 +214,23 @@ export async function uninstall(env: InstallEnv): Promise<StepResult[]> {
       rmSync(plist);
       removed.push(label);
     }
-    results.push({ step: "serviços em segundo plano", status: removed.length ? "changed" : "ok", detail: removed.length ? `removidos: ${removed.join(", ")}` : "nada instalado" });
+    results.push({ step: "agents", status: removed.length ? "changed" : "ok", detail: removed.length ? t.agentsRemoved(removed.join(", ")) : t.nothingInstalled });
   }
 
   if (env.hasClaude && (await pluginInstalled(env))) {
     const out = await env.exec(["claude", "plugin", "uninstall", PLUGIN_ID]);
     await env.exec(["claude", "plugin", "marketplace", "remove", "lembra"]);
-    results.push({ step: "plugin do Claude Code", status: out.code === 0 ? "changed" : "failed", detail: out.code === 0 ? `${PLUGIN_ID} removido` : out.out });
+    results.push({ step: "plugin", status: out.code === 0 ? "changed" : "failed", detail: out.code === 0 ? t.pluginRemoved(PLUGIN_ID) : out.out });
   } else {
-    results.push({ step: "plugin do Claude Code", status: "ok", detail: "não estava instalado" });
+    results.push({ step: "plugin", status: "ok", detail: t.pluginAbsent });
   }
 
   const target = linkPath(env);
   if (isSymlink(target) && readlinkSync(target) === env.cliEntry) {
     rmSync(target);
-    results.push({ step: "comando no PATH", status: "changed", detail: `${target} removido` });
+    results.push({ step: "link", status: "changed", detail: t.linkRemoved(target) });
   } else {
-    results.push({ step: "comando no PATH", status: "ok", detail: "nenhum link do lembra" });
+    results.push({ step: "link", status: "ok", detail: t.noLink });
   }
   return results;
 }

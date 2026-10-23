@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { CORE } from "../i18n/core";
+import type { Locale } from "../i18n/locale";
 import { LembraError } from "./errors";
 import type { Paths } from "./paths";
 import { sessionMessages, type Session, type SessionMessage } from "./sessions";
@@ -12,7 +14,6 @@ export type Runner = (prompt: string) => Promise<string>;
 const MAX_TRANSCRIPT_CHARS = 24_000;
 // Sessions touched in the last half hour may still be going; summarize them later.
 const ACTIVE_GRACE_MS = 30 * 60 * 1000;
-const SPEAKER: Record<string, string> = { prompt: "usuário", reply: "claude", summary: "resumo do /compact", digest: "resumo" };
 
 // Uses the user's own Claude Code login; --no-session-persistence keeps these runs out of the history.
 export function claudeRunner(paths: Paths, model = "haiku"): Runner {
@@ -26,31 +27,23 @@ export function claudeRunner(paths: Paths, model = "haiku"): Runner {
       stderr: "pipe",
     });
     const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    if (code !== 0) throw new LembraError(`claude -p terminou com erro ${code}: ${clip(err.trim() || out.trim(), 300)}`);
+    if (code !== 0) throw new LembraError("summaryFailed", { code, detail: clip(err.trim() || out.trim(), 300) });
     return out.trim();
   };
 }
 
-export function summaryPrompt(session: Session, messages: SessionMessage[]): string {
+// The summary comes out in `locale`, the language the user reads lembra in.
+export function summaryPrompt(session: Session, messages: SessionMessage[], locale: Locale): string {
+  const t = CORE[locale].summary;
   let transcript = messages
-    .map((message) => `[${SPEAKER[message.role]}] ${clip(message.text, message.role === "reply" ? 1500 : 3000)}`)
+    .map((message) => `[${t.speakers[message.role]}] ${clip(message.text, message.role === "reply" ? 1500 : 3000)}`)
     .join("\n\n");
   // Long sessions keep their opening (the goal) and their ending (where it stopped).
   if (transcript.length > MAX_TRANSCRIPT_CHARS) {
     const head = MAX_TRANSCRIPT_CHARS / 3;
     transcript = `${transcript.slice(0, head)}\n\n[…]\n\n${transcript.slice(-(MAX_TRANSCRIPT_CHARS - head))}`;
   }
-  return `Resuma esta sessão do Claude Code para que alguém a encontre e retome o trabalho no futuro.
-Responda em português do Brasil, em no máximo 6 linhas e sem introdução.
-Linha 1: o objetivo da sessão numa frase.
-Depois: o que foi feito, decisões importantes, arquivos ou comandos centrais e o que ficou pendente.
-Use os termos que a pessoa usaria para buscar: nomes de tabelas, módulos, telas, erros, clientes.
-
-Repositório: ${session.repo ?? "?"} · branch: ${session.branch ?? "?"} · título: ${session.title ?? "?"}
-
-<sessao>
-${transcript}
-</sessao>`;
+  return `${t.instructions}\n\n${t.context(session.repo ?? "?", session.branch ?? "?", session.title ?? "?")}\n\n<session>\n${transcript}\n</session>`;
 }
 
 // Finished sessions with real back-and-forth that have no summary yet, or changed after it.
@@ -65,9 +58,9 @@ export function sessionsToSummarize(db: Database, opts: { limit: number; now?: D
     .all({ cutoff, limit: opts.limit });
 }
 
-export async function summarizeSession(db: Database, session: Session, runner: Runner): Promise<string> {
-  const digest = (await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true })))).trim();
-  if (!digest) throw new LembraError(`O resumo da sessão ${session.id.slice(0, 8)} veio vazio.`);
+export async function summarizeSession(db: Database, session: Session, runner: Runner, locale: Locale): Promise<string> {
+  const digest = (await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true }), locale))).trim();
+  if (!digest) throw new LembraError("summaryEmpty", { id: session.id.slice(0, 8) });
   const uid = `digest:${session.id}`;
   db.transaction(() => {
     db.query("UPDATE sessions SET digest = ?, digest_at = ? WHERE id = ?").run(digest, new Date().toISOString(), session.id);

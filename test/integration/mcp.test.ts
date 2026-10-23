@@ -19,7 +19,7 @@ beforeAll(async () => {
   seeded = seedBillingSession(f);
   db = openDb(f.paths.dataDir);
   await indexAll(db, f.paths);
-  handle = createMcpHandler({ db, paths: f.paths, services: fakeServices().services, version: "test" });
+  handle = createMcpHandler({ db, paths: f.paths, services: fakeServices().services, locale: "pt-BR", version: "test" });
 });
 
 afterAll(() => {
@@ -94,4 +94,10 @@ test("lembra hook indexes and archives, and always exits 0", async () => {
   const io = captureIo();
   expect(await run(["hook"], io, f.paths, fakeServices().services)).toBe(0);
   expect(existsSync(archivePath(f.paths, f.transcript))).toBe(true);
+});
+
+test("tool results follow the configured language", async () => {
+  const english = createMcpHandler({ db, paths: f.paths, services: fakeServices().services, locale: "en", version: "test" });
+  const reply = (await english({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "search_history", arguments: { query: "zzzz" } } })) as any;
+  expect(reply.result.content[0].text).toStartWith("Nothing found.");
 });

@@ -1,17 +1,12 @@
 import { h, replace } from "../../lib/dom";
 import { bytes, clock, dayStamp } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import type { FileDTO } from "../../../types";
 import { Badge, type BadgeTone } from "../badge/badge";
 import { Button, whileBusy } from "../button/button";
 import { toast } from "../toast/toast";
 
-const KIND_LABEL: Record<FileDTO["kind"], string> = { write: "criou", edit: "editou", read: "leu", image: "imagem", ref: "citado" };
-const STATUS: Record<FileDTO["status"], [string, BadgeTone]> = {
-  disk: ["no disco", "neutral"],
-  missing: ["apagado do disco", "danger"],
-  image: ["imagem colada", "neutral"],
-  partial: ["sem conteúdo completo", "warning"],
-};
+const STATUS_TONE: Record<FileDTO["status"], BadgeTone> = { disk: "neutral", missing: "danger", image: "neutral", partial: "warning" };
 
 /**
  * One stored file with view, download and (when gone from disk) restore.
@@ -26,13 +21,13 @@ export interface FileRowProps {
 
 export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HTMLElement {
   const slash = file.displayPath.lastIndexOf("/");
-  const status = h("span", { class: "file-row__status" }, Badge(...STATUS[file.status]));
+  const status = h("span", { class: "file-row__status" }, Badge(t.file.status[file.status], STATUS_TONE[file.status]));
   const hasContent = file.status !== "partial";
 
   const restore =
     file.status === "missing" &&
     Button({
-      label: "Restaurar",
+      label: t.file.restore,
       icon: "restore",
       size: "sm",
       onClick: (event) => {
@@ -40,9 +35,9 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
         void whileBusy(button, async () => {
           try {
             const { displayDest } = await onRestore(file.id);
-            replace(status, Badge("restaurado", "success"));
+            replace(status, Badge(t.file.restored, "success"));
             button.remove();
-            toast(`Restaurado em ${displayDest}`, "success");
+            toast(t.file.restoredTo(displayDest), "success");
           } catch (error) {
             toast((error as Error).message, "danger");
           }
@@ -53,7 +48,7 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
   return h(
     "li",
     { class: "file-row", dataset: { status: file.status } },
-    h("span", { class: "file-row__kind" }, KIND_LABEL[file.kind]),
+    h("span", { class: "file-row__kind" }, t.file.kinds[file.kind]),
     h(
       "span",
       { class: "file-row__main" },
@@ -67,7 +62,7 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
         "span",
         { class: "file-row__meta" },
         `${dayStamp(file.ts).toLowerCase()} ${clock(file.ts)} · ${bytes(file.size)}`,
-        file.versions > 1 && ` · ${file.versions} versões`,
+        file.versions > 1 && ` · ${t.file.versions(file.versions)}`,
         showRepo && ` · ${file.repoName}`,
       ),
     ),
@@ -75,8 +70,8 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
     h(
       "span",
       { class: "file-row__actions" },
-      hasContent && Button({ label: "Ver conteúdo", icon: "eye", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, false), newTab: true }),
-      hasContent && Button({ label: "Baixar", icon: "download", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, true), download: true }),
+      hasContent && Button({ label: t.file.view, icon: "eye", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, false), newTab: true }),
+      hasContent && Button({ label: t.file.download, icon: "download", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, true), download: true }),
       restore,
     ),
   );

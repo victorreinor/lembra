@@ -1,5 +1,6 @@
 import { h } from "../../lib/dom";
-import { clock, count, fullDate, repoHue } from "../../lib/format";
+import { clock, fullDate, repoHue } from "../../lib/format";
+import { t } from "../../lib/i18n";
 import { icon } from "../../lib/icons";
 import type { SessionDetailResponse } from "../../../types";
 import { Badge } from "../badge/badge";
@@ -27,22 +28,22 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
   const prompts = messages.filter((message) => message.role === "prompt").length;
   const facts = [
     `${fullDate(session.startedAt)} → ${clock(session.endedAt)}`,
-    count(prompts || session.promptCount, "prompt", "prompts"),
-    session.costUsd ? `US$ ${session.costUsd.toFixed(2)}` : null,
-    session.linesAdded !== null ? `+${session.linesAdded} −${session.linesRemoved ?? 0} linhas` : null,
+    t.detail.prompts(prompts || session.promptCount),
+    session.costUsd ? t.detail.cost(session.costUsd.toFixed(2)) : null,
+    session.linesAdded !== null ? t.detail.lines(session.linesAdded, session.linesRemoved ?? 0) : null,
   ].filter(Boolean);
 
+  const copyHandoff = (primary: boolean) =>
+    Button({ label: t.detail.copyHandoff, icon: "handoff", variant: primary ? "primary" : "secondary", shortcut: "h", onClick: (e) => props.onCopyHandoff(e.currentTarget as HTMLElement) });
   const actions =
     session.source === "transcript"
       ? [
           props.canOpenTerminal &&
-            Button({ label: "Retomar no Terminal", icon: "terminal", variant: "primary", shortcut: "o", onClick: (e) => props.onOpenTerminal(e.currentTarget as HTMLElement) }),
-          Button({ label: "Copiar comando", icon: "copy", shortcut: "c", onClick: () => props.onCopyCommand() }),
-          Button({ label: "Copiar handoff", icon: "handoff", shortcut: "h", onClick: (e) => props.onCopyHandoff(e.currentTarget as HTMLElement) }),
+            Button({ label: t.detail.resume, icon: "terminal", variant: "primary", shortcut: "o", onClick: (e) => props.onOpenTerminal(e.currentTarget as HTMLElement) }),
+          Button({ label: t.detail.copyCommand, icon: "copy", shortcut: "c", onClick: () => props.onCopyCommand() }),
+          copyHandoff(false),
         ]
-      : [
-          Button({ label: "Copiar handoff", icon: "handoff", variant: "primary", shortcut: "h", onClick: (e) => props.onCopyHandoff(e.currentTarget as HTMLElement) }),
-        ];
+      : [copyHandoff(true)];
 
   return h(
     "article",
@@ -50,7 +51,7 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
     h(
       "header",
       { class: "session-detail__header" },
-      h("span", { class: "session-detail__back" }, Button({ label: "Voltar", icon: "back", variant: "ghost", size: "sm", onClick: () => props.onBack() })),
+      h("span", { class: "session-detail__back" }, Button({ label: t.detail.back, icon: "back", variant: "ghost", size: "sm", onClick: () => props.onBack() })),
       h(
         "p",
         { class: "session-detail__eyebrow" },
@@ -65,28 +66,17 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
     h("div", { class: "session-detail__actions" }, actions),
     session.resumeCommand
       ? h("code", { class: "session-detail__command" }, session.resumeCommand)
-      : h(
-          "p",
-          { class: "session-detail__notice" },
-          Badge("só prompts", "warning"),
-          "O Claude Code apagou o transcript antes do lembra existir. Dá para levar o contexto com o handoff.",
-        ),
-    session.digest &&
-      h("section", { class: "session-detail__digest" }, h("span", { class: "label" }, icon("spark", 12), "resumo"), h("p", null, session.digest)),
+      : h("p", { class: "session-detail__notice" }, Badge(t.card.promptsOnly, "warning"), t.detail.promptsOnly),
+    session.digest && h("section", { class: "session-detail__digest" }, h("span", { class: "label" }, icon("spark", 12), t.detail.summary), h("p", null, session.digest)),
     h(
       "section",
       { class: "session-detail__section" },
       h(
         "div",
         { class: "session-detail__section-head" },
-        h("h3", { class: "label" }, "Conversa"),
+        h("h3", { class: "label" }, t.detail.conversation),
         session.source === "transcript" &&
-          Button({
-            label: props.showReplies ? "ocultar respostas do Claude" : "mostrar respostas do Claude",
-            variant: "ghost",
-            size: "sm",
-            onClick: () => props.onToggleReplies(),
-          }),
+          Button({ label: props.showReplies ? t.detail.hideReplies : t.detail.showReplies, variant: "ghost", size: "sm", onClick: () => props.onToggleReplies() }),
       ),
       PromptList({ messages }),
     ),
@@ -94,7 +84,7 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
       h(
         "section",
         { class: "session-detail__section" },
-        h("div", { class: "session-detail__section-head" }, h("h3", { class: "label" }, `Arquivos · ${files.length}`)),
+        h("div", { class: "session-detail__section-head" }, h("h3", { class: "label" }, t.detail.files(files.length))),
         h("ul", { class: "file-list" }, files.map((file) => FileRow({ file, rawUrl: props.rawUrl, onRestore: props.onRestore }))),
       ),
   );

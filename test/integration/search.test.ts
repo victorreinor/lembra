@@ -65,7 +65,7 @@ describe("sessions", () => {
   test("finds a session by id prefix or by its /rename name", () => {
     expect(findSession(db, "11111111").id).toBe(SESSION);
     expect(findSession(db, "Billing-Fix").id).toBe(SESSION);
-    expect(() => findSession(db, "1111")).toThrow(/ambíguo/);
+    expect(() => findSession(db, "1111")).toThrow(/more than one session/);
     expect(() => findSession(db, "zzz")).toThrow(LembraError);
   });
 });

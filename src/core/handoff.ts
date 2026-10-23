@@ -1,15 +1,19 @@
 import type { Database } from "bun:sqlite";
 import { isAbsolute } from "node:path";
+import { CORE } from "../i18n/core";
+import type { Locale } from "../i18n/locale";
 import { isMissing, sessionFiles } from "./files";
 import { resumeCommand, sessionMessages, type Session } from "./sessions";
-import { clip, oneLine, shortPath, when } from "./text";
+import { clip, oneLine, shortPath, textFormat } from "./text";
 
 const RECENT_PROMPTS = 8;
 
 const quote = (text: string) => text.replace(/^/gm, "> ");
 
 // A Markdown brief that lets a fresh Claude session pick up where another one stopped.
-export function buildHandoff(db: Database, session: Session): string {
+export function buildHandoff(db: Database, session: Session, locale: Locale): string {
+  const t = CORE[locale];
+  const format = textFormat(locale);
   const messages = sessionMessages(db, session.id, { replies: true });
   const prompts = messages.filter((message) => message.role === "prompt");
   const lastSummary = messages.findLast((message) => message.role === "summary");
@@ -17,36 +21,28 @@ export function buildHandoff(db: Database, session: Session): string {
   const files = sessionFiles(db, session.id).filter((file) => isAbsolute(file.path));
 
   const header = [
-    `- Sessão: \`${session.id}\` · ${session.repo ?? "?"} · branch \`${session.branch ?? "?"}\``,
-    `- Pasta: \`${session.cwd ?? "?"}\``,
-    `- Período: ${when(session.started_at)} → ${when(session.ended_at)} · ${session.prompt_count} prompts`,
-    session.source === "transcript"
-      ? `- Conversa original: \`${resumeCommand(session)}\``
-      : "- Só os prompts sobreviveram: o Claude Code apagou o transcript antes do lembra existir.",
+    t.handoff.session(session.id, session.repo ?? "?", session.branch ?? "?"),
+    t.handoff.folder(session.cwd ?? "?"),
+    t.handoff.period(format.when(session.started_at), format.when(session.ended_at), t.prompts(format.count(session.prompt_count), session.prompt_count)),
+    session.source === "transcript" ? t.handoff.original(resumeCommand(session)) : t.handoff.promptsOnly,
   ];
-  const sections = [`# Handoff: ${session.title ?? "sessão sem título"}`, header.join("\n")];
+  const sections = [t.handoff.title(session.title ?? t.handoff.untitled), header.join("\n")];
 
-  if (session.digest) sections.push(`## Resumo\n\n${session.digest}`);
-  if (prompts[0]) sections.push(`## Pedido inicial\n\n${quote(clip(prompts[0].text, 1500))}`);
-  if (lastSummary) sections.push(`## Último resumo do /compact\n\n${clip(lastSummary.text, 4000)}`);
+  if (session.digest) sections.push(`${t.handoff.summary}\n\n${session.digest}`);
+  if (prompts[0]) sections.push(`${t.handoff.initialRequest}\n\n${quote(clip(prompts[0].text, 1500))}`);
+  if (lastSummary) sections.push(`${t.handoff.lastCompact}\n\n${clip(lastSummary.text, 4000)}`);
   const recent = prompts.slice(1).slice(-RECENT_PROMPTS);
   if (recent.length) {
-    sections.push(`## Últimos pedidos\n\n${recent.map((prompt) => `- ${when(prompt.ts)}: ${oneLine(prompt.text, 400)}`).join("\n")}`);
+    sections.push(`${t.handoff.recentRequests}\n\n${recent.map((prompt) => `- ${format.when(prompt.ts)}: ${oneLine(prompt.text, 400)}`).join("\n")}`);
   }
-  if (lastReply) sections.push(`## Onde parou (última resposta do Claude)\n\n${quote(clip(lastReply.text, 2000))}`);
+  if (lastReply) sections.push(`${t.handoff.whereItStopped}\n\n${quote(clip(lastReply.text, 2000))}`);
   if (files.length) {
     const lines = files.map((file) => {
-      const status = isMissing(file) ? ", apagado do disco" : "";
       const read = file.sha ? ` → \`lembra cat ${file.id}\`` : "";
-      return `- \`${shortPath(file.path)}\` (${file.kind}${status})${read}`;
+      return `- \`${shortPath(file.path)}\` (${file.kind}${isMissing(file) ? t.handoff.deleted : ""})${read}`;
     });
-    sections.push(`## Arquivos tocados\n\n${lines.join("\n")}`);
+    sections.push(`${t.handoff.files}\n\n${lines.join("\n")}`);
   }
-  sections.push(
-    "## Como continuar\n\n" +
-      "Você está retomando o trabalho desta sessão. Confira o estado atual do repositório (`git status`, `git log -5`), " +
-      "leia os arquivos relevantes e continue a partir dos últimos pedidos. Para ler um arquivo guardado, use `lembra cat <id>` " +
-      "ou a ferramenta `get_file` do MCP lembra.",
-  );
+  sections.push(t.handoff.howToContinue);
   return `${sections.join("\n\n")}\n`;
 }

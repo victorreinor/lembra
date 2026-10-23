@@ -20,7 +20,7 @@ beforeAll(async () => {
   db = openDb(f.paths.dataDir);
   await indexAll(db, f.paths);
   const services = fakeServices({ facts: { "fix/billing": { exists: true, upstream: false, ahead: 0, dirty: false, pr: "NONE" } } }).services;
-  api = createApi({ db, paths: f.paths, services, hosts: [HOST], refresh: async () => undefined, lastIndexedAt: () => null });
+  api = createApi({ db, paths: f.paths, services, hosts: [HOST], refresh: async () => undefined, lastIndexedAt: () => null, chosenLocale: () => "pt-BR" });
 });
 
 afterAll(() => {
@@ -126,4 +126,10 @@ test("the server bundles the page and serves manifest, icons and the API on loop
   } finally {
     server.stop();
   }
+});
+
+test("answers in the language the page asks for", async () => {
+  const res = await send("/api/sessions/zzz", { headers: { "accept-language": "en" } });
+  expect((await res.json()).error).toBe('No session with id or name "zzz".');
+  expect((await get("/api/health")).lang).toBe("pt-BR");
 });

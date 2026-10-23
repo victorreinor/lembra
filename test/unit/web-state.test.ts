@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ago, bytes, count, dayStamp, repoHue } from "../../src/web/ui/lib/format";
+import { ago, bytes, dayStamp, repoHue } from "../../src/web/ui/lib/format";
 import { DEFAULT_STATE, fromSearch, hasActiveFilters, toSearch } from "../../src/web/ui/lib/state";
 
 describe("URL state", () => {
@@ -24,22 +24,23 @@ describe("URL state", () => {
 
 describe("display formatting", () => {
   const now = new Date(2026, 9, 22, 18, 0);
+  const iso = (...args: [number, number, number, number?]) => new Date(...args).toISOString();
 
-  test("day stamps read like an archive diary", () => {
-    expect(dayStamp(new Date(2026, 9, 22, 9).toISOString(), now)).toBe("HOJE");
-    expect(dayStamp(new Date(2026, 9, 21, 23).toISOString(), now)).toBe("ONTEM");
-    expect(dayStamp(new Date(2026, 9, 19, 12).toISOString(), now)).toMatch(/^[A-ZÁÉ]{3} · 19 OUT$/);
-    expect(dayStamp(new Date(2026, 2, 3).toISOString(), now)).toBe("03 MAR");
-    expect(dayStamp(new Date(2025, 2, 3).toISOString(), now)).toBe("03 MAR 2025");
-    expect(dayStamp(null, now)).toBe("SEM DATA");
+  test("day stamps read like an archive diary, in each language", () => {
+    expect(dayStamp(iso(2026, 9, 22, 9), now, "pt-BR")).toBe("HOJE");
+    expect(dayStamp(iso(2026, 9, 21, 23), now, "en")).toBe("YESTERDAY");
+    expect(dayStamp(iso(2026, 9, 19, 12), now, "pt-BR")).toMatch(/^[A-ZÁÉ]{3} · 19 OUT$/);
+    expect(dayStamp(iso(2026, 9, 19, 12), now, "en")).toBe("MON · 19 OCT");
+    expect(dayStamp(iso(2026, 2, 3), now, "pt-BR")).toBe("03 MAR");
+    expect(dayStamp(iso(2025, 2, 3), now, "pt-BR")).toBe("03 MAR 2025");
+    expect(dayStamp(null, now, "en")).toBe("NO DATE");
   });
 
-  test("relative times, sizes and counts", () => {
-    expect(ago(new Date(now.getTime() - 42_000).toISOString(), now)).toBe("há 42 s");
-    expect(ago(new Date(now.getTime() - 3 * 3_600_000).toISOString(), now)).toBe("há 3 h");
-    expect(bytes(1536)).toBe("1,5 KB");
-    expect(count(1, "sessão", "sessões")).toBe("1 sessão");
-    expect(count(1291, "sessão", "sessões")).toBe("1.291 sessões");
+  test("relative times and sizes", () => {
+    expect(ago(new Date(now.getTime() - 42_000).toISOString(), now, "pt-BR")).toBe("há 42 s");
+    expect(ago(new Date(now.getTime() - 3 * 3_600_000).toISOString(), now, "en")).toBe("3 h ago");
+    expect(bytes(1536, "pt-BR")).toBe("1,5 KB");
+    expect(bytes(1536, "en")).toBe("1.5 KB");
   });
 
   test("each repo keeps the same hue", () => {

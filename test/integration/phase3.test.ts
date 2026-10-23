@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("handoff", () => {
   test("brings goal, latest requests, where it stopped and the files to read", () => {
-    const text = buildHandoff(db, getSession(db, SESSION)!);
+    const text = buildHandoff(db, getSession(db, SESSION)!, "pt-BR");
     expect(text).toStartWith("# Handoff: billing-fix");
     expect(text).toContain(`claude --resume ${SESSION}`);
     expect(text).toContain("## Pedido inicial\n\n> preciso corrigir o relatório de faturamento");
@@ -60,7 +60,7 @@ describe("summaries", () => {
 
   test("are stored on the session and become searchable", async () => {
     const { services, prompts } = fakeServices({ digest: () => "Objetivo: conciliar notas do ERP Protheus." });
-    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"));
+    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"), "pt-BR");
     expect(prompts[0]).toContain("[usuário] preciso corrigir o relatório");
     expect(getSession(db, SESSION)!.digest).toBe("Objetivo: conciliar notas do ERP Protheus.");
     expect(search(db, "protheus", {}, { limit: 5 })[0]!.snippets[0]!.role).toBe("digest");
@@ -69,10 +69,10 @@ describe("summaries", () => {
 
   test("are redone when the session continues afterwards", async () => {
     const { services } = fakeServices();
-    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"));
+    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"), "pt-BR");
     db.query("UPDATE sessions SET digest_at = '2026-10-01T00:00:00.000Z' WHERE id = ?").run(SESSION);
     expect(sessionsToSummarize(db, { limit: 10, now: new Date("2026-12-01T00:00:00Z") }).map((s) => s.id)).toEqual([SESSION]);
-    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"));
+    await summarizeSession(db, getSession(db, SESSION)!, services.summarizer("haiku"), "pt-BR");
     expect(db.query("SELECT count(*) AS n FROM messages WHERE role = 'digest'").get()).toEqual({ n: 1 });
   });
 });

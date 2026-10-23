@@ -67,8 +67,8 @@ export function resolveFile(db: Database, ref: string): StoredVersion {
     : db
         .query<StoredFile, any>(`SELECT ${COLUMNS} ${FROM} WHERE f.path = $path AND f.sha IS NOT NULL ORDER BY f.ts DESC, f.id DESC LIMIT 1`)
         .get({ path: resolve(expandHome(ref)) });
-  if (!row) throw new LembraError(`Arquivo não encontrado no cofre: ${ref}`);
-  if (!row.sha) throw new LembraError(`O cofre sabe que ${row.path} foi editado, mas não tem o conteúdo completo dessa versão.`);
+  if (!row) throw new LembraError("fileNotFound", { ref });
+  if (!row.sha) throw new LembraError("fileWithoutContent", { path: row.path });
   return row as StoredVersion;
 }
 
@@ -85,7 +85,7 @@ export async function restoreFile(
   const file = resolveFile(db, ref);
   let dest = resolve(opts.cwd ?? process.cwd(), expandHome(opts.to ?? file.path));
   if (existsSync(dest) && statSync(dest).isDirectory()) dest = join(dest, basename(file.path));
-  if (existsSync(dest) && !opts.force) throw new LembraError(`${dest} já existe. Use --to <caminho> ou --force.`);
+  if (existsSync(dest) && !opts.force) throw new LembraError("destinationExists", { dest });
   mkdirSync(dirname(dest), { recursive: true });
   await Bun.write(dest, readStoredFile(db, file));
   return { file, dest };

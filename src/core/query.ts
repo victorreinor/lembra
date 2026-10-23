@@ -70,7 +70,7 @@ export function parseDate(input: string, endOfDay = false, now = new Date()): st
   } else if (iso) {
     date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   }
-  if (!date || Number.isNaN(date.getTime())) throw new LembraError(`Data inválida: ${input} (use 2026-10-01, 01/10 ou 7d)`);
+  if (!date || Number.isNaN(date.getTime())) throw new LembraError("invalidDate", { input });
   if (endOfDay) date.setDate(date.getDate() + 1);
   return date.toISOString();
 }

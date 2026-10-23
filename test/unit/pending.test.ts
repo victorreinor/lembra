@@ -22,5 +22,6 @@ test("unknown PR state (no gh) does not invent a missing PR", () => {
 });
 
 test("describeReasons spells out how many commits are unpushed", () => {
-  expect(describeReasons({ reasons: ["ahead", "no-pr"], facts: { ...pushed, ahead: 3 } })).toEqual(["3 commits sem push", "sem PR"]);
+  expect(describeReasons({ reasons: ["ahead", "no-pr"], facts: { ...pushed, ahead: 3 } }, "pt-BR")).toEqual(["3 commits sem push", "sem PR"]);
+  expect(describeReasons({ reasons: ["ahead", "no-push"], facts: { ...pushed, ahead: 1 } }, "en")).toEqual(["1 unpushed commit", "never pushed"]);
 });

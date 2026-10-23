@@ -1,25 +1,27 @@
 ---
 name: history
-description: Consulta o histórico completo de sessões do Claude Code deste computador (todas as pastas e repositórios, inclusive sessões antigas apagadas pelo Claude Code) e os arquivos gerados nelas. Use quando o usuário perguntar "já fiz algo parecido?", "procura no meu histórico", "naquela sessão em que…", "o SQL que você gerou semana passada", "o que eu fiz ontem no repo X", "o que ficou pendente", ou pedir um arquivo que sumiu.
+description: Searches the full history of Claude Code sessions on this computer (every folder and repository, including old sessions Claude Code already deleted) and the files generated in them. Use when the user asks "have I done something like this before?", "search my history", "that session where…", "the SQL you generated last week", "what did I do yesterday in repo X", "what is still pending", or asks for a file that disappeared — in any language (e.g. "já fiz algo parecido?", "procura no meu histórico").
 ---
 
-# Histórico do Claude Code
+# Claude Code history
 
-Ferramentas do servidor MCP `lembra`:
+Tools of the `lembra` MCP server:
 
-| Pergunta | Ferramenta |
+| Question | Tool |
 |---|---|
-| "Já fiz algo parecido?", "procura X" | `search_history` com 1 a 3 palavras-chave (prefixos casam: `fatur` acha `faturamento`) |
-| "O que eu fiz ontem / no repo X?" | `list_sessions` com `since` (`1d`, `7d`) e/ou `repo` |
-| Detalhes de uma sessão encontrada | `get_session` (use `include_replies` só se precisar das respostas) |
-| Continuar aquele trabalho | `handoff` |
-| "O SQL / arquivo que você gerou" | `list_files` (ex.: `term: ".sql"`, `missing: true`) e `get_file` |
-| "O que ficou pendente?" | `pending_work` |
+| "Have I done something like this?", "find X" | `search_history` with 1 to 3 keywords (prefixes match: `bill` finds `billing`) |
+| "What did I do yesterday / in repo X?" | `list_sessions` with `since` (`1d`, `7d`) and/or `repo` |
+| Details of a session found | `get_session` (use `include_replies` only if you need Claude's answers) |
+| Continue that work | `handoff` |
+| "The SQL / file you generated" | `list_files` (e.g. `term: ".sql"`, `missing: true`) and `get_file` |
+| "What is still pending?" | `pending_work` |
 
-Como trabalhar:
+How to work:
 
-1. Comece amplo e afunile: poucas palavras primeiro, depois filtros de `repo`, `branch` ou `since`.
-2. Cite as sessões pelo id curto (8 primeiros caracteres), com data e repo, para o usuário reconhecer.
-3. Para retomar uma sessão na própria conversa original, informe o comando `cd <pasta> && claude --resume <id>`. Para trazer o contexto para cá, use `handoff`.
-4. Para devolver um arquivo ao disco, sugira `lembra restore <id>` (ou `--to <pasta>`).
-5. Se nada for encontrado, diga isso claramente e sugira outras palavras. Não invente sessões.
+1. Start broad and narrow down: a few words first, then `repo`, `branch` or `since` filters. Search with the words the user would have used, in their language.
+2. Cite sessions by their short id (first 8 characters), with date and repo, so the user recognizes them.
+3. To reopen a session in its original conversation, give the command `cd <folder> && claude --resume <id>`. To bring its context here, use `handoff`.
+4. To put a file back on disk, suggest `lembra restore <id>` (or `--to <folder>`).
+5. If nothing is found, say so plainly and suggest other words. Never invent sessions.
+
+Always answer in the user's language.

@@ -22,5 +22,25 @@
 
 .status-bar__actions {
   display: inline-flex;
+  align-items: center;
   gap: var(--space-1);
+}
+
+.status-bar__lang {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+}
+
+.status-bar__lang:hover {
+  border-color: var(--color-text-faint);
+  color: var(--color-text);
 }

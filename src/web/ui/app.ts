@@ -5,7 +5,6 @@ import { EmptyState } from "./components/empty-state/empty-state";
 import { FileRow } from "./components/file-row/file-row";
 import { FilterBar } from "./components/filter-bar/filter-bar";
 import { HelpDialog } from "./components/help-dialog/help-dialog";
-import { Kbd } from "./components/kbd/kbd";
 import { PendingList } from "./components/pending-list/pending-list";
 import { SearchBar } from "./components/search-bar/search-bar";
 import { SessionCard } from "./components/session-card/session-card";
@@ -16,19 +15,18 @@ import { Tabs } from "./components/tabs/tabs";
 import { toast } from "./components/toast/toast";
 import { api } from "./lib/api";
 import { h, replace, type Child } from "./lib/dom";
-import { count, dayKey, dayStamp } from "./lib/format";
+import { dayKey, dayStamp } from "./lib/format";
+import { initLocale, switchLocale, t, withKeys } from "./lib/i18n";
 import { bindShortcuts } from "./lib/keyboard";
 import { CLEARED_FILTERS, createStore, fromSearch, hasActiveFilters, type State, type View } from "./lib/state";
+
+// The language set with `lembra lang` is the default when the visitor has not picked one here.
+initLocale((await api.health().catch(() => null))?.lang);
 
 const SEARCH_DEBOUNCE_MS = 160;
 const META_EVERY_MS = 30_000;
 const THEME_KEY = "lembra:theme";
 const LIST_KEYS: (keyof State)[] = ["view", "q", "repo", "branch", "since", "prompts", "missing"];
-const PLACEHOLDERS: Record<View, string> = {
-  sessions: "Buscar em prompts, respostas e títulos…",
-  files: "Filtrar arquivos pelo caminho (ex.: .sql, relatorio)…",
-  pending: "A visão de pendências não usa busca",
-};
 // Opening Terminal.app is a macOS feature of the local server.
 const canOpenTerminal = /Mac/.test(navigator.userAgent);
 
@@ -70,7 +68,7 @@ applyTheme(storedTheme());
 // ── layout ──────────────────────────────────────────────────────────────
 const searchBar = SearchBar({
   value: store.get().q,
-  placeholder: PLACEHOLDERS[store.get().view],
+  placeholder: t.placeholders[store.get().view],
   onInput: (q) => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => store.set({ q }), SEARCH_DEBOUNCE_MS);
@@ -79,26 +77,26 @@ const searchBar = SearchBar({
 });
 const tabs = Tabs<View>({
   items: [
-    { id: "sessions", label: "Sessões", key: "1" },
-    { id: "files", label: "Arquivos", key: "2" },
-    { id: "pending", label: "Pendências", key: "3" },
+    { id: "sessions", label: t.views.sessions, key: "1" },
+    { id: "files", label: t.views.files, key: "2" },
+    { id: "pending", label: t.views.pending, key: "3" },
   ],
   active: store.get().view,
   onChange: (view) => setView(view),
 });
 const filters = FilterBar({ onChange: (patch) => store.set(patch) });
 const help = HelpDialog();
-const status = StatusBar({ onToggleTheme: toggleTheme, onHelp: help.open });
+const status = StatusBar({ onToggleTheme: toggleTheme, onSwitchLanguage: switchLocale, onHelp: help.open });
 const listHeader = h("div", { class: "list-header" });
-const list = h("ol", { class: "results", "aria-label": "Resultados" });
-const detailPane = h("section", { class: "detail-pane", "aria-label": "Detalhes da sessão", tabindex: "-1" });
+const list = h("ol", { class: "results", "aria-label": t.resultsLabel });
+const detailPane = h("section", { class: "detail-pane", "aria-label": t.detailLabel, tabindex: "-1" });
 const main = h("main", { class: "app-main", dataset: { view: store.get().view } }, h("section", { class: "list-pane" }, listHeader, list), detailPane);
 const header = h(
   "header",
   { class: "app-header" },
   h(
     "a",
-    { class: "brand", href: "/", "aria-label": "lembra, início" },
+    { class: "brand", href: "/", "aria-label": t.brandLabel },
     h("img", { class: "brand__mark", src: "/icons/icon.svg", alt: "", width: "30", height: "30" }),
     h("span", { class: "brand__name" }, "lembra"),
   ),
@@ -116,7 +114,7 @@ new ResizeObserver(() => document.documentElement.style.setProperty("--header-of
 
 // ── list ────────────────────────────────────────────────────────────────
 function clearFiltersButton() {
-  return Button({ label: "Limpar filtros", icon: "close", onClick: () => store.set(CLEARED_FILTERS) });
+  return Button({ label: t.filters.clear, icon: "close", onClick: () => store.set(CLEARED_FILTERS) });
 }
 
 function showMessage(...children: Child[]) {
@@ -134,25 +132,27 @@ async function loadList() {
       renderSessions(await api.search({ q: state.q, repo: state.repo, branch: state.branch, since: state.since, prompts: state.prompts }, request.signal));
     } else if (state.view === "files") {
       const response = await api.files({ term: state.q, repo: state.repo, since: state.since, missing: state.missing }, request.signal);
-      replace(listHeader, h("span", null, `${count(response.total, "arquivo", "arquivos")}${response.total > response.files.length ? ` · mostrando ${response.files.length}` : ""}`));
+      replace(listHeader, h("span", null, t.files.count(response.total, response.files.length)));
       if (!response.files.length) {
-        showMessage(EmptyState({ icon: "file", title: "Nenhum arquivo", text: "Tente outro trecho do caminho ou remova os filtros.", action: hasActiveFilters(state) ? clearFiltersButton() : undefined }));
+        showMessage(EmptyState({ icon: "file", title: t.files.noneTitle, text: t.files.noneText, action: hasActiveFilters(state) ? clearFiltersButton() : undefined }));
       } else {
         replace(list, response.files.map((file) => FileRow({ file, showRepo: true, rawUrl: api.rawUrl, onRestore: (id) => api.restore(id) })));
       }
     } else {
-      replace(listHeader, h("span", null, "Consultando git e GitHub…"));
-      const response = await api.pending(state.since || "14d", request.signal);
-      replace(listHeader, h("span", null, `${count(response.items.length, "branch com trabalho não entregue", "branches com trabalho não entregue")} · ${state.since ? `últimos ${state.since}` : "últimos 14 dias"}`));
+      replace(listHeader, h("span", null, t.pending.checking));
+      const since = state.since || "14d";
+      const response = await api.pending(since, request.signal);
+      const period = t.filters.periods[since as keyof typeof t.filters.periods] ?? since;
+      replace(listHeader, h("span", null, t.pending.count(response.items.length, period)));
       if (!response.items.length) {
-        showMessage(EmptyState({ icon: "branch", tone: "success", title: "Nada pendente", text: "Toda branch com sessão recente foi enviada e tem PR." }));
+        showMessage(EmptyState({ icon: "branch", tone: "success", title: t.pending.noneTitle, text: t.pending.noneText }));
       } else {
         replace(list, h("li", { class: "results__message" }, PendingList({ items: response.items, onOpenSession: (id) => store.set({ view: "sessions", session: id }, "push") })));
       }
     }
   } catch (error) {
     if ((error as Error).name === "AbortError") return;
-    showMessage(EmptyState({ icon: "alert", title: "Não deu para carregar", text: (error as Error).message, action: Button({ label: "Tentar de novo", onClick: () => void loadList() }) }));
+    showMessage(EmptyState({ icon: "alert", title: t.load.errorTitle, text: (error as Error).message, action: Button({ label: t.load.retry, onClick: () => void loadList() }) }));
   } finally {
     if (listRequest === request) main.removeAttribute("aria-busy");
     firstLoad = false;
@@ -164,16 +164,16 @@ function renderSessions(response: SearchResponse) {
   const n = response.results.length;
   replace(
     listHeader,
-    h("span", null, response.mode === "search" ? count(n, "sessão", "sessões") : `${count(n, "sessão recente", "sessões recentes")}`),
-    response.mode === "search" && h("span", null, `${response.tookMs} ms`),
+    h("span", null, response.mode === "search" ? t.sessions.found(n) : t.sessions.recent(n)),
+    response.mode === "search" && h("span", null, t.sessions.tookMs(response.tookMs)),
   );
   if (!n) {
-    const text = response.mode === "search" ? "Use menos palavras ou um prefixo: “fatur” acha “faturamento”." : "Ainda não há sessões indexadas.";
+    const searching = response.mode === "search";
     showMessage(
       EmptyState({
         icon: "search",
-        title: response.mode === "search" ? `Nada encontrado para “${state.q}”` : "Nenhuma sessão",
-        text,
+        title: searching ? t.sessions.noneTitle(state.q) : t.sessions.emptyTitle,
+        text: searching ? t.sessions.noneText : t.sessions.emptyText,
         action: hasActiveFilters(state) ? clearFiltersButton() : undefined,
       }),
     );
@@ -215,14 +215,7 @@ function markSelected(id: string | null) {
 
 // ── detail ──────────────────────────────────────────────────────────────
 function renderDetailEmpty() {
-  replace(
-    detailPane,
-    EmptyState({
-      icon: "clock",
-      title: "Escolha uma sessão",
-      text: h("p", null, "Use ", Kbd("↓"), " ", Kbd("↑"), " para navegar. Com uma sessão aberta, ", Kbd("o"), " retoma no Terminal e ", Kbd("h"), " copia o handoff. ", Kbd("?"), " mostra todos os atalhos."),
-    }),
-  );
+  replace(detailPane, EmptyState({ icon: "clock", title: t.detail.emptyTitle, text: h("p", null, withKeys(t.detail.emptyText)) }));
 }
 
 async function loadDetail(id: string | null) {
@@ -257,7 +250,7 @@ async function loadDetail(id: string | null) {
     );
     detailPane.scrollTop = 0;
   } catch (error) {
-    replace(detailPane, EmptyState({ icon: "alert", title: "Sessão indisponível", text: (error as Error).message }));
+    replace(detailPane, EmptyState({ icon: "alert", title: t.detail.unavailable, text: (error as Error).message }));
   }
 }
 
@@ -266,19 +259,19 @@ async function copy(text: string, message: string) {
     await navigator.clipboard.writeText(text);
     toast(message, "success");
   } catch {
-    toast("O navegador bloqueou a área de transferência.", "danger");
+    toast(t.toasts.clipboardBlocked, "danger");
   }
 }
 
 async function copyCommand() {
-  if (!detail?.session.resumeCommand) return toast("Esta sessão só tem os prompts; use o handoff.", "neutral");
-  await copy(detail.session.resumeCommand, "Comando copiado. Cole num terminal.");
+  if (!detail?.session.resumeCommand) return toast(t.toasts.promptsOnly, "neutral");
+  await copy(detail.session.resumeCommand, t.toasts.commandCopied);
 }
 
 async function copyHandoff(button?: HTMLElement) {
   const id = detail?.session.id;
   if (!id) return;
-  const run = async () => copy((await api.handoff(id)).text, "Handoff copiado. Cole numa sessão nova do Claude Code.");
+  const run = async () => copy((await api.handoff(id)).text, t.toasts.handoffCopied);
   if (button) await whileBusy(button, run);
   else await run();
 }
@@ -289,7 +282,7 @@ async function openTerminal(button?: HTMLElement) {
   const run = async () => {
     try {
       await api.openTerminal(id);
-      toast("Abrindo a sessão no Terminal…", "success");
+      toast(t.toasts.openingTerminal, "success");
     } catch (error) {
       toast((error as Error).message, "danger");
     }
@@ -306,7 +299,7 @@ function setView(view: View) {
 
 store.subscribe((state, previous) => {
   searchBar.setValue(state.q);
-  searchBar.setPlaceholder(PLACEHOLDERS[state.view]);
+  searchBar.setPlaceholder(t.placeholders[state.view]);
   searchBar.input.disabled = state.view === "pending";
   tabs.setActive(state.view);
   main.dataset.view = state.view;

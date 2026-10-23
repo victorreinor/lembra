@@ -1,4 +1,5 @@
 import { h } from "../../lib/dom";
+import { t } from "../../lib/i18n";
 
 /**
  * Segmented view switcher. Example:
@@ -14,7 +15,7 @@ export function Tabs<T extends string>(props: { items: TabItem<T>[]; active: T; 
   const buttons = new Map<T, HTMLButtonElement>();
   const el = h(
     "div",
-    { class: "tabs", role: "tablist", "aria-label": "Visões" },
+    { class: "tabs", role: "tablist", "aria-label": t.views.label },
     props.items.map((item) => {
       const button = h(
         "button",

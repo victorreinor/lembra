@@ -53,8 +53,8 @@ export function findSession(db: Database, ref: string): Session {
   const rows = db
     .query<Session, any>("SELECT * FROM sessions WHERE id LIKE $prefix OR lower(custom_title) = lower($ref) ORDER BY ended_at DESC LIMIT 5")
     .all({ prefix: `${ref}%`, ref });
-  if (!rows.length) throw new LembraError(`Nenhuma sessão com id ou nome "${ref}".`);
-  if (rows.length > 1) throw new LembraError(`"${ref}" é ambíguo: ${rows.map((row) => row.id.slice(0, 12)).join(", ")}…`);
+  if (!rows.length) throw new LembraError("sessionNotFound", { ref });
+  if (rows.length > 1) throw new LembraError("sessionAmbiguous", { ref, ids: rows.map((row) => row.id.slice(0, 12)).join(", ") });
   return rows[0]!;
 }
 

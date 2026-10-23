@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { isAbsolute } from "node:path";
-import type { Services } from "../core/services";
 import { LembraError } from "../core/errors";
 import { isMissing, latestFiles, readStoredFile, resolveFile, sessionFiles } from "../core/files";
 import { buildHandoff } from "../core/handoff";
@@ -8,43 +7,48 @@ import type { Paths } from "../core/paths";
 import { describeReasons, findPending } from "../core/pending";
 import { parseDate, type Filters } from "../core/query";
 import { search } from "../core/search";
+import type { Services } from "../core/services";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
-import { bracketMatches, clip, oneLine, repoName, shortPath, when } from "../core/text";
+import { bracketMatches, clip, oneLine, repoName, shortPath, textFormat } from "../core/text";
+import type { Locale } from "../i18n/locale";
+import { MCP } from "../i18n/mcp";
 
 export interface ToolContext {
   db: Database;
   paths: Paths;
   services: Services;
+  locale: Locale;
 }
 
 export interface Tool {
   name: string;
+  // English on purpose: descriptions are instructions for the model, not text for the user.
   description: string;
   inputSchema: { type: "object"; properties: Record<string, object>; required?: string[] };
   run(ctx: ToolContext, args: Record<string, unknown>): Promise<string> | string;
 }
 
 const FILTERS = {
-  repo: { type: "string", description: "Trecho do nome do repositório (ex.: billing-api)" },
-  branch: { type: "string", description: "Trecho do nome da branch" },
-  since: { type: "string", description: "A partir de: 2026-10-01, 01/10, 7d, 2w, 3m" },
-  until: { type: "string", description: "Até (inclusive), mesmo formato de since" },
+  repo: { type: "string", description: "Part of the repository name (e.g. billing-api)" },
+  branch: { type: "string", description: "Part of the branch name" },
+  since: { type: "string", description: "From: 2026-10-01, 7d, 2w, 3m" },
+  until: { type: "string", description: "Until (inclusive), same format as since" },
 };
-const LIMIT = { type: "integer", minimum: 1, maximum: 50, description: "Quantidade de resultados" };
+const LIMIT = { type: "integer", minimum: 1, maximum: 50, description: "Number of results" };
 
 function text(args: Record<string, unknown>, key: string, required = false): string | undefined {
   const value = args[key];
   if (value === undefined || value === null || value === "") {
-    if (required) throw new LembraError(`Informe "${key}".`);
+    if (required) throw new LembraError("missingParam", { key });
     return undefined;
   }
-  if (typeof value !== "string") throw new LembraError(`"${key}" precisa ser texto.`);
+  if (typeof value !== "string") throw new LembraError("paramNotText", { key });
   return value;
 }
 
 function limitOf(args: Record<string, unknown>, fallback: number): number {
   const value = args.limit ?? fallback;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new LembraError('"limit" precisa ser um inteiro positivo.');
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) throw new LembraError("paramNotPositive", { key: "limit" });
   return Math.min(value, 50);
 }
 
@@ -59,144 +63,153 @@ function filtersOf(args: Record<string, unknown>): Filters {
   };
 }
 
-function sessionHeader(session: Session): string {
-  const partial = session.source === "history" ? " · só prompts (transcript apagado)" : "";
-  return `## ${session.title ?? "(sem título)"}\nid: ${session.id} · ${repoName(session.repo)} · ${session.branch ?? "sem branch"} · ${when(session.ended_at)} · ${session.prompt_count} prompts${partial}`;
+function sessionHeader(session: Session, locale: Locale): string {
+  const t = MCP[locale];
+  const header = t.header(
+    session.title ?? t.untitled,
+    session.id,
+    repoName(session.repo),
+    session.branch ?? t.noBranch,
+    textFormat(locale).when(session.ended_at),
+    session.prompt_count,
+  );
+  return session.source === "history" ? header + t.promptsOnly : header;
 }
 
 export const TOOLS: Tool[] = [
   {
     name: "search_history",
     description:
-      "Busca em todas as sessões do Claude Code deste computador, em todos os repositórios, inclusive as antigas: prompts do usuário, respostas, resumos e títulos. Use quando o usuário perguntar se já fez algo parecido, mencionar uma sessão, decisão, SQL ou arquivo de antes, ou quando contexto passado ajudaria. Devolve sessões com trechos; aprofunde com get_session ou handoff.",
+      "Searches every Claude Code session on this computer, across all repositories and including old ones: the user's prompts, Claude's replies, summaries and titles. Use it when the user asks whether they did something similar before, mentions a past session, decision, SQL or file, or when past context would help. Returns sessions with matching snippets; go deeper with get_session or handoff.",
     inputSchema: {
       type: "object",
       properties: {
-        query: { type: "string", description: 'Palavras-chave. Cada palavra casa como prefixo; use "aspas" para frase exata.' },
+        query: { type: "string", description: 'Keywords. Each word matches as a prefix; use "quotes" for an exact phrase.' },
         ...FILTERS,
-        prompts_only: { type: "boolean", description: "Buscar só no que o usuário escreveu" },
+        prompts_only: { type: "boolean", description: "Search only what the user wrote" },
         limit: LIMIT,
       },
       required: ["query"],
     },
-    run({ db }, args) {
-      const hits = search(db, text(args, "query", true)!, filtersOf(args), {
-        promptsOnly: args.prompts_only === true,
-        limit: limitOf(args, 10),
-      });
-      if (!hits.length) return "Nada encontrado. Tente menos palavras, prefixos mais curtos ou remova filtros.";
+    run({ db, locale }, args) {
+      const hits = search(db, text(args, "query", true)!, filtersOf(args), { promptsOnly: args.prompts_only === true, limit: limitOf(args, 10) });
+      if (!hits.length) return MCP[locale].nothingFound;
       return hits
-        .map((hit) => [sessionHeader(hit.session), ...hit.snippets.map((s) => `> [${s.role}] ${bracketMatches(oneLine(s.text, 300))}`)].join("\n"))
+        .map((hit) => [sessionHeader(hit.session, locale), ...hit.snippets.map((s) => `> [${s.role}] ${bracketMatches(oneLine(s.text, 300))}`)].join("\n"))
         .join("\n\n");
     },
   },
   {
     name: "list_sessions",
-    description: "Lista as sessões mais recentes do Claude Code, com filtros por repositório, branch e período.",
+    description: "Lists the most recent Claude Code sessions, filtered by repository, branch and period.",
     inputSchema: { type: "object", properties: { ...FILTERS, limit: LIMIT } },
-    run({ db }, args) {
+    run({ db, locale }, args) {
+      const t = MCP[locale];
       const sessions = listSessions(db, filtersOf(args), limitOf(args, 15));
-      if (!sessions.length) return "Nenhuma sessão.";
-      return sessions.map((session) => `${sessionHeader(session)}\núltimo pedido: ${oneLine(session.last_prompt, 200)}`).join("\n\n");
+      if (!sessions.length) return t.noSessions;
+      return sessions.map((session) => `${sessionHeader(session, locale)}\n${t.lastRequest(oneLine(session.last_prompt, 200))}`).join("\n\n");
     },
   },
   {
     name: "get_session",
-    description:
-      "Mostra uma sessão: resumo, todos os prompts do usuário (e as respostas, se pedido), resumos do /compact e arquivos tocados com seus ids.",
+    description: "Shows one session: its summary, every user prompt (and Claude's replies when asked), /compact summaries and the files it touched with their ids.",
     inputSchema: {
       type: "object",
       properties: {
-        session: { type: "string", description: "Começo do id da sessão ou o nome dado com /rename" },
-        include_replies: { type: "boolean", description: "Incluir as respostas do Claude (mais longo)" },
-        max_chars: { type: "integer", minimum: 1000, description: "Limite de tamanho da resposta (padrão 20000)" },
+        session: { type: "string", description: "Start of the session id, or the name given with /rename" },
+        include_replies: { type: "boolean", description: "Include Claude's replies (longer)" },
+        max_chars: { type: "integer", minimum: 1000, description: "Maximum answer length (default 20000)" },
       },
       required: ["session"],
     },
-    run({ db }, args) {
+    run({ db, locale }, args) {
+      const t = MCP[locale];
+      const format = textFormat(locale);
       const session = findSession(db, text(args, "session", true)!);
-      const parts = [sessionHeader(session), `pasta: ${session.cwd ?? "?"}`];
-      if (session.source === "transcript") parts.push(`retomar: ${resumeCommand(session)}`);
-      if (session.digest) parts.push(`\n### Resumo\n${session.digest}`);
-      parts.push("\n### Conversa");
+      const parts = [sessionHeader(session, locale), t.folder(session.cwd ?? "?")];
+      if (session.source === "transcript") parts.push(t.resume(resumeCommand(session)));
+      if (session.digest) parts.push(`\n${t.summary}\n${session.digest}`);
+      parts.push(`\n${t.conversation}`);
       for (const message of sessionMessages(db, session.id, { replies: args.include_replies === true })) {
-        parts.push(`[${message.role} · ${when(message.ts)}] ${message.text}`);
+        parts.push(`[${message.role} · ${format.when(message.ts)}] ${message.text}`);
       }
       const files = sessionFiles(db, session.id).filter((file) => isAbsolute(file.path));
       if (files.length) {
-        parts.push("\n### Arquivos");
-        for (const file of files) parts.push(`#${file.id} ${file.kind} ${shortPath(file.path)}${isMissing(file) ? " (apagado do disco)" : ""}`);
+        parts.push(`\n${t.files}`);
+        for (const file of files) parts.push(`#${file.id} ${file.kind} ${shortPath(file.path)}${isMissing(file) ? t.deleted : ""}`);
       }
       return clip(parts.join("\n"), typeof args.max_chars === "number" ? args.max_chars : 20_000);
     },
   },
   {
     name: "handoff",
-    description:
-      "Gera o resumo de passagem de uma sessão (objetivo, últimos pedidos, onde parou, arquivos) para continuar aquele trabalho nesta conversa.",
+    description: "Builds the handoff brief of a session (goal, latest requests, where it stopped, files) to continue that work in this conversation.",
     inputSchema: {
       type: "object",
-      properties: { session: { type: "string", description: "Começo do id da sessão ou o nome dado com /rename" } },
+      properties: { session: { type: "string", description: "Start of the session id, or the name given with /rename" } },
       required: ["session"],
     },
-    run({ db }, args) {
-      return buildHandoff(db, findSession(db, text(args, "session", true)!));
+    run({ db, locale }, args) {
+      return buildHandoff(db, findSession(db, text(args, "session", true)!), locale);
     },
   },
   {
     name: "list_files",
-    description:
-      "Lista arquivos que o Claude criou, editou ou leu em sessões passadas (versão mais recente de cada caminho), inclusive os que já foram apagados do disco.",
+    description: "Lists files Claude created, edited or read in past sessions (latest version of each path), including those already deleted from disk.",
     inputSchema: {
       type: "object",
       properties: {
-        term: { type: "string", description: "Trecho do caminho (ex.: .sql, relatorio)" },
+        term: { type: "string", description: "Part of the path (e.g. .sql, report)" },
         repo: FILTERS.repo,
         since: FILTERS.since,
-        missing: { type: "boolean", description: "Só os que não existem mais no disco" },
+        missing: { type: "boolean", description: "Only files that no longer exist on disk" },
         limit: LIMIT,
       },
     },
-    run({ db }, args) {
+    run({ db, locale }, args) {
+      const t = MCP[locale];
+      const format = textFormat(locale);
       const since = text(args, "since");
       let files = latestFiles(db, { term: text(args, "term"), repo: text(args, "repo"), since: since ? parseDate(since) : undefined });
       if (args.missing === true) files = files.filter(isMissing);
-      if (!files.length) return "Nenhum arquivo.";
+      if (!files.length) return t.noFiles;
       return files
         .slice(0, limitOf(args, 20))
-        .map((file) => `#${file.id} ${when(file.ts)} ${file.kind} ${repoName(file.repo)} ${shortPath(file.path)}${isMissing(file) ? " (apagado do disco)" : ""}`)
+        .map((file) => `#${file.id} ${format.when(file.ts)} ${file.kind} ${repoName(file.repo)} ${shortPath(file.path)}${isMissing(file) ? t.deleted : ""}`)
         .join("\n");
     },
   },
   {
     name: "get_file",
-    description: "Lê o conteúdo guardado de um arquivo do cofre, mesmo que tenha sido apagado do disco.",
+    description: "Reads the stored content of a file from the vault, even if it was deleted from disk.",
     inputSchema: {
       type: "object",
       properties: {
-        file: { type: "string", description: "Id do arquivo (#123) ou o caminho original" },
-        max_chars: { type: "integer", minimum: 1000, description: "Limite de tamanho (padrão 50000)" },
+        file: { type: "string", description: "File id (#123) or its original path" },
+        max_chars: { type: "integer", minimum: 1000, description: "Maximum length (default 50000)" },
       },
       required: ["file"],
     },
-    run({ db }, args) {
+    run({ db, locale }, args) {
+      const t = MCP[locale];
       const file = resolveFile(db, text(args, "file", true)!);
       const data = readStoredFile(db, file);
-      if (data.includes(0)) return `${file.path} é binário (${data.byteLength} bytes). Para recuperar: lembra restore ${file.id}`;
-      const header = `${file.path} · versão de ${when(file.ts)}${isMissing(file) ? " · apagado do disco (lembra restore " + file.id + ")" : ""}\n\n`;
-      return header + clip(new TextDecoder().decode(data), typeof args.max_chars === "number" ? args.max_chars : 50_000);
+      if (data.includes(0)) return t.binary(file.path, data.byteLength, file.id);
+      const header = t.version(file.path, textFormat(locale).when(file.ts)) + (isMissing(file) ? t.restoreHint(file.id) : "");
+      return `${header}\n\n${clip(new TextDecoder().decode(data), typeof args.max_chars === "number" ? args.max_chars : 50_000)}`;
     },
   },
   {
     name: "pending_work",
-    description:
-      "Lista branches com sessões recentes cujo trabalho não foi entregue: sem push, commits sem push, alterações não commitadas ou sem PR.",
-    inputSchema: { type: "object", properties: { since: { ...FILTERS.since, description: "Período analisado (padrão 14d)" } } },
-    async run({ db, services }, args) {
+    description: "Lists branches with recent sessions whose work was not delivered: never pushed, unpushed commits, uncommitted changes or no PR.",
+    inputSchema: { type: "object", properties: { since: { ...FILTERS.since, description: "Period analyzed (default 14d)" } } },
+    async run({ db, services, locale }, args) {
+      const t = MCP[locale];
       const items = await findPending(db, { since: parseDate(text(args, "since") ?? "14d"), probe: services.git });
-      if (!items.length) return "Nada pendente: toda branch com sessão recente foi enviada e tem PR.";
+      if (!items.length) return t.nothingPending;
+      const format = textFormat(locale);
       return items
-        .map((item) => `${repoName(item.repo)} · ${item.branch}: ${describeReasons(item).join(", ")} (última sessão ${item.lastSession.id.slice(0, 8)}, ${when(item.lastSession.ended_at)})`)
+        .map((item) => t.pending(repoName(item.repo), item.branch, describeReasons(item, locale).join(", "), item.lastSession.id.slice(0, 8), format.when(item.lastSession.ended_at)))
         .join("\n");
     },
   },

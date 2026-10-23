@@ -6,9 +6,9 @@ import { TOOLS, type ToolContext } from "./tools";
 
 const FALLBACK_PROTOCOL = "2025-06-18";
 const INSTRUCTIONS =
-  "lembra guarda o histórico completo do Claude Code desta máquina (todas as pastas, inclusive sessões antigas). " +
-  "Antes de refazer algo que o usuário diz já ter feito, use search_history. Para continuar o trabalho de outra sessão, use handoff. " +
-  "Para recuperar um arquivo gerado antes, use list_files e get_file.";
+  "lembra keeps the full Claude Code history of this machine (every folder, including old sessions). " +
+  "Before redoing something the user says they did before, use search_history. To continue another session's work, use handoff. " +
+  "To recover a file generated earlier, use list_files and get_file. Answer in the user's language.";
 
 export interface JsonRpcMessage {
   jsonrpc: "2.0";
@@ -43,18 +43,18 @@ export function createMcpHandler(opts: McpOptions) {
         return result({ tools: TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })) });
       case "tools/call": {
         const tool = TOOLS.find((candidate) => candidate.name === message.params?.name);
-        if (!tool) return error(-32602, `Ferramenta desconhecida: ${message.params?.name}`);
+        if (!tool) return error(-32602, `Unknown tool: ${message.params?.name}`);
         try {
           await opts.refresh?.();
           const text = await tool.run(opts, message.params?.arguments ?? {});
           return result({ content: [{ type: "text", text }] });
         } catch (failure) {
           if (!(failure instanceof LembraError)) throw failure;
-          return result({ content: [{ type: "text", text: failure.message }], isError: true });
+          return result({ content: [{ type: "text", text: failure.in(opts.locale) }], isError: true });
         }
       }
       default:
-        return isNotification ? null : error(-32601, `Método não suportado: ${message.method}`);
+        return isNotification ? null : error(-32601, `Method not supported: ${message.method}`);
     }
   };
 }
@@ -74,7 +74,7 @@ export async function serveStdio(handle: ReturnType<typeof createMcpHandler>) {
       try {
         message = JSON.parse(line);
       } catch {
-        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "JSON inválido" } });
+        send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Invalid JSON" } });
         continue;
       }
       try {

@@ -27,7 +27,7 @@ describe("lembra", () => {
   test("--help explains every command", async () => {
     const { code, out } = await lembra("--help");
     expect(code).toBe(0);
-    for (const command of ["install", "uninstall", "ui", "search", "list", "show", "resume", "handoff", "files", "restore", "cat", "pending", "summarize", "index", "stats"]) {
+    for (const command of ["install", "uninstall", "lang", "ui", "search", "list", "show", "resume", "handoff", "files", "restore", "cat", "pending", "summarize", "index", "stats"]) {
       expect(out).toContain(`lembra ${command}`);
     }
   });
@@ -43,7 +43,7 @@ describe("lembra", () => {
     expect(code).toBe(0);
     expect(err).toContain("Primeira indexação");
     expect(out).toContain("billing-fix");
-    expect(out).toContain("1 prompts");
+    expect(out).toContain("1 prompt ·");
   });
 
   test("treats bare words as a search", async () => {
@@ -133,4 +133,33 @@ test("the bin runs as a standalone executable", () => {
   const result = Bun.spawnSync(["bun", "src/cli/index.ts", "--help"], { cwd: join(import.meta.dir, "..", "..") });
   expect(result.exitCode).toBe(0);
   expect(result.stdout.toString()).toContain("lembra search");
+});
+
+describe("languages", () => {
+  test("--lang en switches help, output and errors to English", async () => {
+    expect((await lembra("--lang", "en", "--help")).out).toContain("Find and resume");
+    expect((await lembra("--lang", "en", "list")).out).toContain("1 prompt · last:");
+    const missing = await lembra("--lang", "en", "show", "zzz");
+    expect(missing.err).toContain('No session with id or name "zzz".');
+  });
+
+  test("rejects languages it does not have", async () => {
+    const { code, err } = await lembra("--lang", "xx", "list");
+    expect(code).toBe(2);
+    expect(err).toContain("xx");
+  });
+
+  test("lembra lang stores the preference and auto clears it", async () => {
+    const saved = process.env.LEMBRA_LANG;
+    delete process.env.LEMBRA_LANG;
+    try {
+      expect((await lembra("lang", "en")).out).toContain("Language set to en");
+      expect((await lembra("lang")).out).toContain("Language: en (set with lembra lang)");
+      expect((await lembra("lang", "pt")).out).toContain("Idioma definido como pt-BR");
+      expect((await lembra("lang", "auto")).out).toMatch(/back to automatic|de volta ao automático/);
+      expect((await lembra("lang", "klingon")).code).toBe(1);
+    } finally {
+      process.env.LEMBRA_LANG = saved;
+    }
+  });
 });
