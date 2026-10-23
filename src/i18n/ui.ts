@@ -1,9 +1,7 @@
+import { formatNumber as num, plural } from "./format";
 import type { Locale } from "./locale";
 
 // Every string of the web page. Counts arrive as numbers; "[k]" marks a key rendered as <kbd>.
-
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
-const num = (n: number, tag: string) => n.toLocaleString(tag);
 
 const en = {
   brandLabel: "lembra, home",
@@ -29,8 +27,9 @@ const en = {
     periods: { all: "All", "1d": "24 h", "7d": "7 days", "14d": "14 days", "30d": "30 days", "90d": "90 days" },
   },
   sessions: {
-    found: (n: number) => `${num(n, "en-US")} ${plural(n, "session", "sessions")}`,
-    recent: (n: number) => `${num(n, "en-US")} recent ${plural(n, "session", "sessions")}`,
+    untitled: "(untitled)",
+    found: (n: number) => `${num(n, "en")} ${plural(n, "session", "sessions")}`,
+    recent: (n: number) => `${num(n, "en")} recent ${plural(n, "session", "sessions")}`,
     tookMs: (ms: number) => `${ms} ms`,
     noneTitle: (q: string) => `Nothing found for “${q}”`,
     noneText: "Use fewer words or a prefix: “bill” finds “billing”.",
@@ -38,7 +37,7 @@ const en = {
     emptyText: "No sessions indexed yet.",
   },
   files: {
-    count: (n: number, shown: number) => `${num(n, "en-US")} ${plural(n, "file", "files")}${n > shown ? ` · showing ${num(shown, "en-US")}` : ""}`,
+    count: (n: number, shown: number) => `${num(n, "en")} ${plural(n, "file", "files")}${n > shown ? ` · showing ${num(shown, "en")}` : ""}`,
     noneTitle: "No files",
     noneText: "Try another part of the path or clear the filters.",
   },
@@ -58,7 +57,7 @@ const en = {
     resume: "Resume in Terminal",
     copyCommand: "Copy command",
     copyHandoff: "Copy handoff",
-    prompts: (n: number) => `${num(n, "en-US")} ${plural(n, "prompt", "prompts")}`,
+    prompts: (n: number) => `${num(n, "en")} ${plural(n, "prompt", "prompts")}`,
     cost: (usd: string) => `US$ ${usd}`,
     lines: (added: number, removed: number) => `+${added} −${removed} lines`,
     promptsOnly: "Claude Code deleted the transcript before lembra existed. The handoff can still carry its context.",
@@ -109,11 +108,11 @@ const en = {
   },
   status: {
     loading: "loading…",
-    sessions: (n: number) => `${num(n, "en-US")} ${plural(n, "session", "sessions")}`,
+    sessions: (n: number) => `${num(n, "en")} ${plural(n, "session", "sessions")}`,
     since: (date: string) => `since ${date}`,
-    recoverable: (n: number) => `${num(n, "en-US")} recoverable ${plural(n, "file", "files")}`,
+    recoverable: (n: number) => `${num(n, "en")} recoverable ${plural(n, "file", "files")}`,
     indexed: (ago: string) => `indexed ${ago}`,
-    retention: (days: number) => `retention ${num(days, "en-US")} days`,
+    retention: (days: number) => `retention ${num(days, "en")} days`,
     retentionWarning: "Claude Code still deletes transcripts after 30 days: run lembra install",
     theme: "Switch light/dark theme",
     help: "Shortcuts and search (?)",
@@ -154,6 +153,7 @@ const ptBR: UiCatalog = {
     periods: { all: "Tudo", "1d": "24 h", "7d": "7 dias", "14d": "14 dias", "30d": "30 dias", "90d": "90 dias" },
   },
   sessions: {
+    untitled: "(sem título)",
     found: (n) => `${num(n, "pt-BR")} ${plural(n, "sessão", "sessões")}`,
     recent: (n) => `${num(n, "pt-BR")} ${plural(n, "sessão recente", "sessões recentes")}`,
     tookMs: (ms) => `${ms} ms`,

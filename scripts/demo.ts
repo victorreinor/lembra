@@ -144,11 +144,13 @@ const PENDING: Record<string, BranchFacts> = {
   "fix/fatura-duplicada": { exists: true, upstream: true, ahead: 2, dirty: false, pr: "NONE" },
   "feat/backfill-notas": { exists: true, upstream: false, ahead: 0, dirty: true, pr: "NONE" },
 };
+const factsOf = (branch: string): BranchFacts => PENDING[branch] ?? { exists: true, upstream: true, ahead: 0, dirty: false, pr: "MERGED" };
 const services: Services = {
   git: {
     root: async (cwd) => cwd,
     defaultBranch: async () => "main",
-    facts: async (_root, branch) => PENDING[branch] ?? { exists: true, upstream: true, ahead: 0, dirty: false, pr: "MERGED" },
+    facts: async (_root, branch) => factsOf(branch),
+    pullRequests: async (_root, branches) => new Map(branches.map((branch) => [branch, factsOf(branch).pr])),
   },
   summarizer: () => async () => "",
 };

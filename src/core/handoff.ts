@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { isAbsolute } from "node:path";
 import { CORE } from "../i18n/core";
 import type { Locale } from "../i18n/locale";
 import { isMissing, sessionFiles } from "./files";
@@ -18,13 +17,14 @@ export function buildHandoff(db: Database, session: Session, locale: Locale): st
   const prompts = messages.filter((message) => message.role === "prompt");
   const lastSummary = messages.findLast((message) => message.role === "summary");
   const lastReply = messages.findLast((message) => message.role === "reply");
-  const files = sessionFiles(db, session.id).filter((file) => isAbsolute(file.path));
+  const files = sessionFiles(db, session.id).filter((file) => file.kind !== "image");
+  const command = resumeCommand(session);
 
   const header = [
     t.handoff.session(session.id, session.repo ?? "?", session.branch ?? "?"),
     t.handoff.folder(session.cwd ?? "?"),
     t.handoff.period(format.when(session.started_at), format.when(session.ended_at), t.prompts(format.count(session.prompt_count), session.prompt_count)),
-    session.source === "transcript" ? t.handoff.original(resumeCommand(session)) : t.handoff.promptsOnly,
+    command ? t.handoff.original(command) : t.handoff.promptsOnly,
   ];
   const sections = [t.handoff.title(session.title ?? t.handoff.untitled), header.join("\n")];
 

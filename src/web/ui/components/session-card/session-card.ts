@@ -35,7 +35,7 @@ export function SessionCard({ result, index, selected, onSelect }: SessionCardPr
     h(
       "span",
       { class: "session-card__head" },
-      h("span", { class: "session-card__title" }, session.title),
+      h("span", { class: "session-card__title" }, session.title ?? t.sessions.untitled),
       session.digest && Badge(t.card.summary, "accent", "spark"),
       session.source === "history" && Badge(t.card.promptsOnly, "warning"),
     ),

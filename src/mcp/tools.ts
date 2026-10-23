@@ -1,11 +1,10 @@
 import type { Database } from "bun:sqlite";
-import { isAbsolute } from "node:path";
 import { LembraError } from "../core/errors";
 import { isMissing, latestFiles, readStoredFile, resolveFile, sessionFiles } from "../core/files";
 import { buildHandoff } from "../core/handoff";
 import type { Paths } from "../core/paths";
 import { describeReasons, findPending } from "../core/pending";
-import { parseDate, type Filters } from "../core/query";
+import { parseFilters, type Filters } from "../core/query";
 import { search } from "../core/search";
 import type { Services } from "../core/services";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
@@ -54,14 +53,7 @@ function limitOf(args: Record<string, unknown>, fallback: number): number {
 }
 
 function filtersOf(args: Record<string, unknown>): Filters {
-  const since = text(args, "since");
-  const until = text(args, "until");
-  return {
-    repo: text(args, "repo"),
-    branch: text(args, "branch"),
-    since: since ? parseDate(since) : undefined,
-    until: until ? parseDate(until, true) : undefined,
-  };
+  return parseFilters({ repo: text(args, "repo"), branch: text(args, "branch"), since: text(args, "since"), until: text(args, "until") });
 }
 
 function sessionHeader(session: Session, locale: Locale): string {
@@ -128,13 +120,14 @@ export const TOOLS: Tool[] = [
       const format = textFormat(locale);
       const session = findSession(db, text(args, "session", true)!);
       const parts = [sessionHeader(session, locale), t.folder(session.cwd ?? "?")];
-      if (session.source === "transcript") parts.push(t.resume(resumeCommand(session)));
+      const command = resumeCommand(session);
+      if (command) parts.push(t.resume(command));
       if (session.digest) parts.push(`\n${t.summary}\n${session.digest}`);
       parts.push(`\n${t.conversation}`);
       for (const message of sessionMessages(db, session.id, { replies: args.include_replies === true })) {
         parts.push(`[${message.role} · ${format.when(message.ts)}] ${message.text}`);
       }
-      const files = sessionFiles(db, session.id).filter((file) => isAbsolute(file.path));
+      const files = sessionFiles(db, session.id).filter((file) => file.kind !== "image");
       if (files.length) {
         parts.push(`\n${t.files}`);
         for (const file of files) parts.push(`#${file.id} ${file.kind} ${shortPath(file.path)}${isMissing(file) ? t.deleted : ""}`);
@@ -170,9 +163,8 @@ export const TOOLS: Tool[] = [
     run({ db, locale }, args) {
       const t = MCP[locale];
       const format = textFormat(locale);
-      const since = text(args, "since");
-      let files = latestFiles(db, { term: text(args, "term"), repo: text(args, "repo"), since: since ? parseDate(since) : undefined });
-      if (args.missing === true) files = files.filter(isMissing);
+      const { repo, since } = filtersOf(args);
+      const files = latestFiles(db, { term: text(args, "term"), repo, since, missing: args.missing === true });
       if (!files.length) return t.noFiles;
       return files
         .slice(0, limitOf(args, 20))
@@ -208,7 +200,7 @@ export const TOOLS: Tool[] = [
     inputSchema: { type: "object", properties: { since: { ...FILTERS.since, description: "Period analyzed (default 14d)" } } },
     async run({ db, services, locale }, args) {
       const t = MCP[locale];
-      const items = await findPending(db, { since: parseDate(text(args, "since") ?? "14d"), probe: services.git });
+      const items = await findPending(db, { since: text(args, "since"), probe: services.git });
       if (!items.length) return t.nothingPending;
       const format = textFormat(locale);
       return items

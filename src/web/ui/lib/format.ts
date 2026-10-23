@@ -1,3 +1,4 @@
+import { formatBytes } from "../../../i18n/format";
 import { INTL_TAG, type Locale } from "../../../i18n/locale";
 import { UI } from "../../../i18n/ui";
 import { locale as currentLocale } from "./i18n";
@@ -71,15 +72,7 @@ export function ago(iso: string | null, now = new Date(), locale: Locale = curre
 }
 
 export function bytes(n: number | null, locale: Locale = currentLocale): string {
-  if (n === null) return "—";
-  const units = ["B", "KB", "MB", "GB"];
-  let value = n;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toLocaleString(INTL_TAG[locale], { maximumFractionDigits: 1 })} ${units[unit]}`;
+  return n === null ? "—" : formatBytes(n, locale);
 }
 
 // Stable hue per repository, so the same repo always gets the same tab color.

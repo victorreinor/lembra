@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { CORE } from "../i18n/core";
 import type { Locale } from "../i18n/locale";
 import { LembraError } from "./errors";
+import { exec } from "./exec";
 import type { Paths } from "./paths";
 import { redact } from "./secrets";
 import { sessionMessages, type Session, type SessionMessage } from "./sessions";
@@ -21,15 +22,9 @@ export function claudeRunner(paths: Paths, model = "haiku"): Runner {
   const cwd = join(paths.dataDir, "summaries");
   mkdirSync(cwd, { recursive: true });
   return async (prompt) => {
-    const proc = Bun.spawn(["claude", "-p", "--model", model, "--no-session-persistence"], {
-      cwd,
-      stdin: new Blob([prompt]),
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-    if (code !== 0) throw new LembraError("summaryFailed", { code, detail: clip(err.trim() || out.trim(), 300) });
-    return out.trim();
+    const { code, out, err } = await exec(["claude", "-p", "--model", model, "--no-session-persistence"], { cwd, stdin: prompt });
+    if (code !== 0) throw new LembraError("summaryFailed", { code, detail: clip(err || out, 300) });
+    return out;
   };
 }
 

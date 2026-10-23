@@ -1,8 +1,7 @@
+import { plural } from "./format";
 import type { Locale } from "./locale";
 
 // Everything the `lembra` command prints. Counts and dates arrive already formatted for the locale.
-
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 const HELP_EN = `lembra — permanent, searchable history for Claude Code
 

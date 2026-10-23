@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { exec } from "../core/exec";
 import type { CliCatalog } from "../i18n/cli";
 
 // `lembra install` / `lembra uninstall`: each step checks before it changes anything, so running
@@ -8,9 +9,8 @@ import type { CliCatalog } from "../i18n/cli";
 export type Exec = (cmd: string[]) => Promise<{ code: number; out: string }>;
 
 export const systemExec: Exec = async (cmd) => {
-  const proc = Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
-  return { code, out: `${out}${err}`.trim() };
+  const { code, out, err } = await exec(cmd);
+  return { code, out: [out, err].filter(Boolean).join("\n") };
 };
 
 export interface InstallEnv {
@@ -29,6 +29,8 @@ export interface InstallEnv {
   uid: number;
   exec: Exec;
   hasClaude: boolean;
+  // Injectable so tests do not wait for launchd.
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export type StepId = keyof CliCatalog["install"]["steps"];
@@ -46,8 +48,8 @@ export const RETENTION_DAYS = 3650;
 export const PLUGIN_ID = "lembra@lembra";
 export const AGENTS = { server: "com.lembra.server", index: "com.lembra.index" } as const;
 const DAILY_INDEX = { Hour: 12, Minute: 30 };
-const BOOTSTRAP_RETRIES = 15;
-const BOOTSTRAP_RETRY_MS = 400;
+const UNLOAD_POLLS = 15;
+const UNLOAD_POLL_MS = 400;
 
 const linkPath = (env: InstallEnv) => join(env.home, ".local", "bin", "lembra");
 const agentPath = (env: InstallEnv, label: string) => join(env.home, "Library", "LaunchAgents", `${label}.plist`);
@@ -182,16 +184,21 @@ async function installAgents(env: InstallEnv, t: Text, dryRun: boolean): Promise
   for (const spec of stale) {
     const plist = agentPath(env, spec.label);
     writeFileSync(plist, launchAgentPlist(spec));
-    await env.exec(["launchctl", "bootout", `gui/${env.uid}/${spec.label}`]);
-    // bootout finishes asynchronously; bootstrapping before the old instance is gone fails with EIO.
-    let loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
-    for (let attempt = 0; loaded.code !== 0 && attempt < BOOTSTRAP_RETRIES; attempt++) {
-      await Bun.sleep(BOOTSTRAP_RETRY_MS);
-      loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
-    }
+    await unload(env, spec.label);
+    const loaded = await env.exec(["launchctl", "bootstrap", `gui/${env.uid}`, plist]);
     if (loaded.code !== 0) return { step: "agents", status: "failed", detail: `${spec.label}: ${loaded.out}` };
   }
   return { step: "agents", status: "changed", detail: t.agentsInstalled };
+}
+
+// bootout returns before the old instance is gone, and bootstrapping over it fails with EIO.
+async function unload(env: InstallEnv, label: string) {
+  const sleep = env.sleep ?? Bun.sleep;
+  await env.exec(["launchctl", "bootout", `gui/${env.uid}/${label}`]);
+  for (let poll = 0; poll < UNLOAD_POLLS; poll++) {
+    if ((await env.exec(["launchctl", "print", `gui/${env.uid}/${label}`])).code !== 0) return;
+    await sleep(UNLOAD_POLL_MS);
+  }
 }
 
 export async function install(env: InstallEnv, t: Text, opts: { dryRun?: boolean } = {}): Promise<StepResult[]> {

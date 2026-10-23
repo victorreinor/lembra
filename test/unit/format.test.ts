@@ -34,8 +34,9 @@ test("paths and repos are shortened for display", () => {
 });
 
 test("resumeCommand quotes the folder for the shell", () => {
-  const session = { id: "abc", cwd: "/tmp/it's here" } as Session;
+  const session = { id: "abc", cwd: "/tmp/it's here", source: "transcript" } as Session;
   expect(resumeCommand(session)).toBe(`cd '/tmp/it'\\''s here' && claude --resume abc`);
+  expect(resumeCommand({ ...session, source: "history" })).toBeNull();
 });
 
 test("clip cuts long text and bracketMatches renders search marks as plain text", () => {

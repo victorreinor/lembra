@@ -1,16 +1,16 @@
 import type { Database } from "bun:sqlite";
 import { existsSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import { restoreTranscript } from "../core/archive";
 import { readConfig, writeConfig } from "../core/config";
 import { LembraError } from "../core/errors";
-import { isMissing, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
+import { fileStatus, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
 import { buildHandoff } from "../core/handoff";
 import { indexAll } from "../core/indexer";
 import type { Paths } from "../core/paths";
 import { describeReasons, findPending } from "../core/pending";
-import { parseDate, type Filters } from "../core/query";
+import { parseFilters } from "../core/query";
 import { search } from "../core/search";
 import type { Services } from "../core/services";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
@@ -19,11 +19,12 @@ import { sessionsToSummarize, summarizeSession } from "../core/summarize";
 import { oneLine, repoName, shortPath, type TextFormat } from "../core/text";
 import { CLI, type CliCatalog } from "../i18n/cli";
 import { LOCALES, matchLocale, type Locale } from "../i18n/locale";
-import { preferredLocale } from "../i18n/system";
+import { localeChoice, preferredLocale } from "../i18n/system";
 import { createMcpHandler, serveStdio } from "../mcp/server";
 import { install, systemExec, uninstall, type InstallEnv, type StepResult, type StepStatus } from "../system/install";
 import { copyToClipboard, openUrl } from "../system/os";
 import { VERSION } from "../version";
+import { DEFAULT_PORT } from "../web/port";
 import { bold, cyan, dim, green, highlight, red, yellow } from "./format";
 
 export type { Services } from "../core/services";
@@ -104,7 +105,7 @@ function searchCommand(ctx: Context) {
   const { db, options, args, io, t, fmt } = ctx;
   const query = args.join(" ").trim();
   if (!query) throw new LembraError("missingQuery");
-  const hits = search(db, query, filtersFrom(options), { promptsOnly: options.prompts, limit: limitFrom(options, 15) });
+  const hits = search(db, query, parseFilters(options), { promptsOnly: options.prompts, limit: limitFrom(options, 15) });
   if (!hits.length) return io.out(dim(t.search.none));
   for (const hit of hits) {
     io.out(sessionLine(ctx, hit.session));
@@ -116,7 +117,7 @@ function searchCommand(ctx: Context) {
 
 function listCommand(ctx: Context) {
   const { db, options, io, t, fmt } = ctx;
-  const sessions = listSessions(db, filtersFrom(options), limitFrom(options, 20));
+  const sessions = listSessions(db, parseFilters(options), limitFrom(options, 20));
   if (!sessions.length) return io.out(dim(t.list.none));
   for (const session of sessions) {
     io.out(sessionLine(ctx, session));
@@ -136,8 +137,8 @@ function showCommand(ctx: Context) {
     session.lines_added != null ? t.show.lines(session.lines_added, session.lines_removed ?? 0) : null,
   ];
   io.out(facts.filter(Boolean).join(" · "));
-  if (session.source === "history") io.out(yellow(t.show.promptsOnly));
-  else io.out(`${t.show.resume} ${cyan(resumeCommand(session))}`);
+  const command = resumeCommand(session);
+  io.out(command ? `${t.show.resume} ${cyan(command)}` : yellow(t.show.promptsOnly));
   if (session.digest) io.out(`\n${bold(t.show.summary)}\n${session.digest}`);
 
   io.out(`\n${bold(t.show.prompts)}`);
@@ -156,9 +157,9 @@ function showCommand(ctx: Context) {
 
 async function resumeSessionCommand({ db, paths, options, args, io, t }: Context): Promise<number> {
   const session = findSession(db, required(args[0], "missingSession"));
-  if (session.source === "history") throw new LembraError("promptsOnly");
-  if ((await restoreTranscript(db, paths, session.id)) === "restored") io.err(dim(t.resume.restored));
   const command = resumeCommand(session);
+  if (!command) throw new LembraError("promptsOnly");
+  if ((await restoreTranscript(db, paths, session.id)) === "restored") io.err(dim(t.resume.restored));
   const cwdExists = Boolean(session.cwd && existsSync(session.cwd));
   if (!cwdExists) io.err(yellow(t.resume.folderGone(shortPath(session.cwd ?? "?"))));
   if (options.print || !io.interactive || !cwdExists) {
@@ -181,9 +182,8 @@ async function handoffCommand({ db, options, args, io, t, locale }: Context) {
 
 function filesCommand(ctx: Context) {
   const { db, options, args, io, t, fmt } = ctx;
-  const since = options.since ? parseDate(options.since) : undefined;
-  let files = latestFiles(db, { term: args.join(" ") || undefined, repo: options.repo, since });
-  if (options.missing) files = files.filter(isMissing);
+  const { repo, since } = parseFilters(options);
+  const files = latestFiles(db, { term: args.join(" ") || undefined, repo, since, missing: options.missing });
   const shown = files.slice(0, limitFrom(options, 30));
   if (!shown.length) return io.out(dim(t.files.none));
   for (const file of shown) io.out(fileLine(ctx, file, true));
@@ -204,7 +204,7 @@ function catCommand({ db, args, io }: Context) {
 
 async function pendingCommand({ db, options, io, services, t, fmt, locale }: Context) {
   io.err(dim(t.pending.checking));
-  const items = await findPending(db, { since: parseDate(options.since ?? "14d"), probe: services.git });
+  const items = await findPending(db, { since: options.since, probe: services.git });
   if (!items.length) return io.out(green(t.pending.none));
   for (const item of items) {
     io.out(`${green(repoName(item.repo))} · ${bold(item.branch)}  ${yellow(describeReasons(item, locale).join(" · "))}`);
@@ -266,7 +266,7 @@ function statsCommand({ db, paths, io, t, fmt }: Context) {
 function langCommand({ paths, options, args, io, t, locale }: Context): number {
   const value = args[0];
   if (!value) {
-    const source = options.lang ? "flag" : process.env.LEMBRA_LANG ? "env" : readConfig(paths.dataDir).lang ? "config" : "system";
+    const { source } = localeChoice({ flag: options.lang, dataDir: paths.dataDir });
     io.out(t.lang.current(locale, t.lang.sources[source]));
     io.out(dim(t.lang.available(LOCALES.join(", "))));
     return 0;
@@ -321,7 +321,7 @@ async function installCommand(ctx: Context): Promise<number> {
   }
   const stats = await indexAll(db, paths, { archive: true });
   printSteps(ctx, [{ step: "index", status: "ok", detail: t.install.indexed(fmt.count(stats.scanned), fmt.count(stats.messages)) }]);
-  io.out(`\n${bold(t.install.ready(cyan("http://localhost:4747"), cyan("lembra ui")))}`);
+  io.out(`\n${bold(t.install.ready(cyan(`http://localhost:${DEFAULT_PORT}`), cyan("lembra ui")))}`);
   io.out(dim(t.install.next));
   return results.some((result) => result.status === "failed") ? 1 : 0;
 }
@@ -336,7 +336,7 @@ async function uninstallCommand(ctx: Context): Promise<number> {
 
 // Opens the web page, starting the local server unless one (launchd or another terminal) already runs.
 async function uiCommand({ db, paths, options, io, services, t, locale }: Context): Promise<number> {
-  const { DEFAULT_PORT, isServerRunning, startServer } = await import("../web/server");
+  const { isServerRunning, startServer } = await import("../web/server");
   const port = Number(options.port ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port <= 0) throw new LembraError("invalidPort", { value: String(options.port) });
   const url = `http://localhost:${port}`;
@@ -385,25 +385,11 @@ function sessionLine({ t, fmt }: Context, session: Session): string {
 }
 
 function fileLine({ t, fmt }: Context, file: StoredFile, showRepo: boolean): string {
-  const status = !file.sha
-    ? dim(t.fileStatus.partial)
-    : !isAbsolute(file.path)
-      ? dim(t.fileStatus.image)
-      : isMissing(file)
-        ? red(t.fileStatus.missing)
-        : dim(t.fileStatus.disk);
+  const status = fileStatus(file);
+  const label = (status === "missing" ? red : dim)(t.fileStatus[status]);
   const repo = showRepo ? `${green(repoName(file.repo).padEnd(16))} ` : "";
   const versions = file.versions > 1 ? dim(` · ${t.versions(fmt.count(file.versions))}`) : "";
-  return `${cyan(`#${file.id}`.padEnd(7))} ${dim(fmt.when(file.ts))}  ${file.kind.padEnd(5)}  ${repo}${shortPath(file.path)}  ${status}${versions}`;
-}
-
-function filtersFrom(options: Options): Filters {
-  return {
-    repo: options.repo,
-    branch: options.branch,
-    since: options.since ? parseDate(options.since) : undefined,
-    until: options.until ? parseDate(options.until, true) : undefined,
-  };
+  return `${cyan(`#${file.id}`.padEnd(7))} ${dim(fmt.when(file.ts))}  ${file.kind.padEnd(5)}  ${repo}${shortPath(file.path)}  ${label}${versions}`;
 }
 
 function limitFrom(options: Options, fallback: number): number {

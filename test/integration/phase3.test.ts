@@ -82,7 +82,7 @@ describe("pending work", () => {
     const { services } = fakeServices({
       facts: { "fix/billing": { exists: true, upstream: false, ahead: 0, dirty: true, pr: "NONE" } },
     });
-    const items = await findPending(db, { since: "2026-01-01T00:00:00.000Z", probe: services.git });
+    const items = await findPending(db, { since: "2026-01-01", probe: services.git });
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ branch: "fix/billing", reasons: ["no-push", "dirty", "no-pr"], sessions: 1 });
     expect(items[0]!.lastSession.id).toBe(SESSION);
@@ -90,7 +90,7 @@ describe("pending work", () => {
 
   test("ignores mainline branches and merged work", async () => {
     const { services } = fakeServices();
-    expect(await findPending(db, { since: "2026-01-01T00:00:00.000Z", probe: services.git })).toEqual([]);
+    expect(await findPending(db, { since: "2026-01-01", probe: services.git })).toEqual([]);
     expect(getSession(db, OTHER_SESSION)!.branch).toBe("main");
   });
 });

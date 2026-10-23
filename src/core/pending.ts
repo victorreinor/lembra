@@ -2,8 +2,12 @@ import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { CORE } from "../i18n/core";
 import type { Locale } from "../i18n/locale";
+import { exec, forEachLimited } from "./exec";
+import { parseDate } from "./query";
 import { WORKTREE_SUFFIX } from "./repo";
 import type { Session } from "./sessions";
+
+export type PullRequestState = "OPEN" | "MERGED" | "CLOSED" | "NONE" | "UNKNOWN";
 
 export interface BranchFacts {
   exists: boolean;
@@ -11,14 +15,16 @@ export interface BranchFacts {
   ahead: number;
   // Uncommitted changes while this branch is checked out.
   dirty: boolean;
-  pr: "OPEN" | "MERGED" | "CLOSED" | "NONE" | "UNKNOWN";
+  pr: PullRequestState;
 }
 
 // Everything pending.ts needs from git and gh, so tests can swap in fixed answers.
 export interface GitProbe {
   root(cwd: string): Promise<string | null>;
   defaultBranch(root: string): Promise<string | null>;
-  facts(root: string, branch: string): Promise<BranchFacts>;
+  facts(root: string, branch: string): Promise<Omit<BranchFacts, "pr">>;
+  // PR state for each branch that gh can see; branches left out are UNKNOWN.
+  pullRequests(root: string, branches: string[]): Promise<Map<string, PullRequestState>>;
 }
 
 export type PendingReason = "no-push" | "ahead" | "dirty" | "no-pr" | "pr-closed";
@@ -52,20 +58,27 @@ export function pendingReasons(facts: BranchFacts): PendingReason[] {
   return reasons;
 }
 
-export async function findPending(db: Database, opts: { since: string; probe: GitProbe; concurrency?: number }): Promise<PendingItem[]> {
+// Default period for every interface (CLI, MCP, page).
+export const DEFAULT_PENDING_SINCE = "14d";
+const CONCURRENCY = 6;
+
+export async function findPending(db: Database, opts: { since?: string; probe: GitProbe }): Promise<PendingItem[]> {
   const sessions = db
     .query<Session, any>(
       `SELECT * FROM sessions
        WHERE source = 'transcript' AND branch IS NOT NULL AND cwd IS NOT NULL AND ended_at >= $since
        ORDER BY ended_at DESC`,
     )
-    .all({ since: opts.since });
+    .all({ since: parseDate(opts.since || DEFAULT_PENDING_SINCE) })
+    .filter((session) => !MAINLINE.has(session.branch!));
 
   const rootOf = new Map<string, string | null>();
+  await forEachLimited([...new Set(sessions.map((session) => session.cwd!))], CONCURRENCY, async (cwd) => {
+    rootOf.set(cwd, await opts.probe.root(cwd));
+  });
+
   const groups = new Map<string, { root: string; branch: string; sessions: Session[] }>();
   for (const session of sessions) {
-    if (MAINLINE.has(session.branch!)) continue;
-    if (!rootOf.has(session.cwd!)) rootOf.set(session.cwd!, await opts.probe.root(session.cwd!));
     const root = rootOf.get(session.cwd!);
     if (!root) continue;
     const key = `${root}\0${session.branch}`;
@@ -74,15 +87,19 @@ export async function findPending(db: Database, opts: { since: string; probe: Gi
     groups.set(key, group);
   }
 
-  const defaults = new Map<string, string | null>();
-  for (const { root } of groups.values()) {
-    if (!defaults.has(root)) defaults.set(root, await opts.probe.defaultBranch(root));
-  }
+  const repos = new Map<string, { defaultBranch: string | null; pullRequests: Map<string, PullRequestState> }>();
+  const branchesOf = Map.groupBy(groups.values(), (group) => group.root);
+  await forEachLimited([...branchesOf.keys()], CONCURRENCY, async (root) => {
+    const branches = branchesOf.get(root)!.map((group) => group.branch);
+    const [defaultBranch, pullRequests] = await Promise.all([opts.probe.defaultBranch(root), opts.probe.pullRequests(root, branches)]);
+    repos.set(root, { defaultBranch, pullRequests });
+  });
 
   const items: PendingItem[] = [];
-  await forEachLimited([...groups.values()], opts.concurrency ?? 6, async (group) => {
-    if (group.branch === defaults.get(group.root)) return;
-    const facts = await opts.probe.facts(group.root, group.branch);
+  await forEachLimited([...groups.values()], CONCURRENCY, async (group) => {
+    const repo = repos.get(group.root)!;
+    if (group.branch === repo.defaultBranch) return;
+    const facts: BranchFacts = { ...(await opts.probe.facts(group.root, group.branch)), pr: repo.pullRequests.get(group.branch) ?? "UNKNOWN" };
     const reasons = pendingReasons(facts);
     if (!reasons.length) return;
     const lastSession = group.sessions[0]!;
@@ -91,45 +108,59 @@ export async function findPending(db: Database, opts: { since: string; probe: Gi
   return items.sort((a, b) => (b.lastSession.ended_at ?? "").localeCompare(a.lastSession.ended_at ?? ""));
 }
 
-async function forEachLimited<T>(items: T[], limit: number, task: (item: T) => Promise<void>) {
-  let next = 0;
-  const worker = async () => {
-    while (next < items.length) await task(items[next++]!);
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
-
-async function run(cmd: string[], cwd?: string): Promise<string | null> {
-  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "ignore" });
-  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  return code === 0 ? out.trim() : null;
+async function git(root: string, ...args: string[]): Promise<string | null> {
+  const { code, out } = await exec(["git", "-C", root, ...args]);
+  return code === 0 ? out : null;
 }
 
 // The real probe: git for branch state, gh (when installed and logged in) for pull requests.
 export const systemGit: GitProbe = {
   async root(cwd) {
     const dir = cwd.replace(WORKTREE_SUFFIX, "");
-    return existsSync(dir) ? run(["git", "-C", dir, "rev-parse", "--show-toplevel"]) : null;
+    return existsSync(dir) ? git(dir, "rev-parse", "--show-toplevel") : null;
   },
   async defaultBranch(root) {
-    const ref = await run(["git", "-C", root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+    const ref = await git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
     return ref ? ref.replace(/^origin\//, "") : null;
   },
   async facts(root, branch) {
-    const exists = (await run(["git", "-C", root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])) !== null;
-    if (!exists) return { exists, upstream: false, ahead: 0, dirty: false, pr: "UNKNOWN" };
-    const upstream = await run(["git", "-C", root, "rev-parse", "--abbrev-ref", `${branch}@{upstream}`]);
-    const ahead = upstream ? Number((await run(["git", "-C", root, "rev-list", "--count", `${upstream}..${branch}`])) ?? 0) : 0;
-    const current = await run(["git", "-C", root, "branch", "--show-current"]);
-    const dirty = current === branch && Boolean(await run(["git", "-C", root, "status", "--porcelain"]));
-    return { exists, upstream: Boolean(upstream), ahead, dirty, pr: await pullRequestState(root, branch) };
+    const exists = (await git(root, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`)) !== null;
+    if (!exists) return { exists, upstream: false, ahead: 0, dirty: false };
+    const upstream = await git(root, "rev-parse", "--abbrev-ref", `${branch}@{upstream}`);
+    const ahead = upstream ? Number((await git(root, "rev-list", "--count", `${upstream}..${branch}`)) ?? 0) : 0;
+    const current = await git(root, "branch", "--show-current");
+    const dirty = current === branch && Boolean(await git(root, "status", "--porcelain"));
+    return { exists, upstream: Boolean(upstream), ahead, dirty };
   },
+  pullRequests,
 };
 
-async function pullRequestState(root: string, branch: string): Promise<BranchFacts["pr"]> {
-  if (!Bun.which("gh")) return "UNKNOWN";
-  const out = await run(["gh", "pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", "state"], root);
-  if (out === null) return "UNKNOWN";
-  const state = (JSON.parse(out) as { state: string }[])[0]?.state;
-  return state === "OPEN" || state === "MERGED" || state === "CLOSED" ? state : "NONE";
+const PR_LIST_LIMIT = 200;
+const hasGh = Boolean(Bun.which("gh"));
+
+// One `gh pr list` per repository; only branches older than its newest PRs get a query of their own.
+async function pullRequests(root: string, branches: string[]): Promise<Map<string, PullRequestState>> {
+  const states = new Map<string, PullRequestState>();
+  if (!hasGh) return states;
+  const list = async (...args: string[]) => {
+    const { code, out } = await exec(["gh", "pr", "list", "--state", "all", "--json", "headRefName,state", ...args], { cwd: root });
+    return code === 0 ? (JSON.parse(out) as { headRefName: string; state: string }[]) : null;
+  };
+  const recent = await list("--limit", String(PR_LIST_LIMIT));
+  if (!recent) return states;
+  // Newest first: the first PR seen for a branch is its latest.
+  for (const pr of recent) if (!states.has(pr.headRefName)) states.set(pr.headRefName, prState(pr.state));
+  const complete = recent.length < PR_LIST_LIMIT;
+  await forEachLimited(
+    branches.filter((branch) => !states.has(branch)),
+    CONCURRENCY,
+    async (branch) => {
+      if (complete) return void states.set(branch, "NONE");
+      const own = await list("--head", branch, "--limit", "1");
+      if (own) states.set(branch, own[0] ? prState(own[0].state) : "NONE");
+    },
+  );
+  return states;
 }
+
+const prState = (state: string): PullRequestState => (state === "OPEN" || state === "MERGED" || state === "CLOSED" ? state : "NONE");

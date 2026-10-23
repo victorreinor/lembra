@@ -140,9 +140,8 @@ async function loadList() {
       }
     } else {
       replace(listHeader, h("span", null, t.pending.checking));
-      const since = state.since || "14d";
-      const response = await api.pending(since, request.signal);
-      const period = t.filters.periods[since as keyof typeof t.filters.periods] ?? since;
+      const response = await api.pending(state.since, request.signal);
+      const period = t.filters.periods[response.since as keyof typeof t.filters.periods] ?? response.since;
       replace(listHeader, h("span", null, t.pending.count(response.items.length, period)));
       if (!response.items.length) {
         showMessage(EmptyState({ icon: "branch", tone: "success", title: t.pending.noneTitle, text: t.pending.noneText }));

@@ -14,6 +14,16 @@ export interface FilterColumns {
   to: string;
 }
 
+// Filters as every interface receives them (text, dates like "7d" or "01/10"); empty values mean no filter.
+export function parseFilters(raw: { repo?: string | null; branch?: string | null; since?: string | null; until?: string | null }): Filters {
+  return {
+    repo: raw.repo || undefined,
+    branch: raw.branch || undefined,
+    since: raw.since ? parseDate(raw.since) : undefined,
+    until: raw.until ? parseDate(raw.until, true) : undefined,
+  };
+}
+
 export function filterSql(filters: Filters, cols: FilterColumns): { where: string[]; params: Record<string, string> } {
   const where: string[] = [];
   const params: Record<string, string> = {};

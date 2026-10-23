@@ -26,7 +26,7 @@ const COLUMNS = `f.id, f.session_id, f.ts, f.path, f.kind, f.sha, f.size, f.secr
 const FROM = "FROM files f LEFT JOIN sessions s ON s.id = f.session_id";
 
 // One row per real path, pointing at its most recent stored version.
-export function latestFiles(db: Database, filters: { term?: string; repo?: string; since?: string }): StoredFile[] {
+export function latestFiles(db: Database, filters: { term?: string; repo?: string; since?: string; missing?: boolean }): StoredFile[] {
   const where = [
     "f.id = (SELECT v.id FROM files v WHERE v.path = f.path AND v.sha IS NOT NULL ORDER BY v.ts DESC, v.id DESC LIMIT 1)",
     "f.path LIKE '/%'",
@@ -44,7 +44,8 @@ export function latestFiles(db: Database, filters: { term?: string; repo?: strin
     where.push("f.ts >= $since");
     params.since = filters.since;
   }
-  return db.query<StoredFile, any>(`SELECT ${COLUMNS} ${FROM} WHERE ${where.join(" AND ")} ORDER BY f.ts DESC`).all(params);
+  const files = db.query<StoredFile, any>(`SELECT ${COLUMNS} ${FROM} WHERE ${where.join(" AND ")} ORDER BY f.ts DESC`).all(params);
+  return filters.missing ? files.filter(isMissing) : files;
 }
 
 // The last state of each path one session touched, preferring versions whose content we have.
@@ -95,4 +96,13 @@ export async function restoreFile(
 
 export function isMissing(file: Pick<StoredFile, "path">): boolean {
   return !isAbsolute(file.path) || !existsSync(file.path);
+}
+
+export type FileStatus = "disk" | "missing" | "image" | "partial";
+
+// partial: lembra saw the edit but not the full content; image: pasted into the chat, never on disk.
+export function fileStatus(file: Pick<StoredFile, "sha" | "kind" | "path">): FileStatus {
+  if (!file.sha) return "partial";
+  if (file.kind === "image") return "image";
+  return isMissing(file) ? "missing" : "disk";
 }

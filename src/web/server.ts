@@ -3,12 +3,11 @@ import { join } from "node:path";
 import { indexAll, type IndexStats } from "../core/indexer";
 import type { Paths } from "../core/paths";
 import type { Services } from "../core/services";
-import { readConfig } from "../core/config";
-import { matchLocale, type Locale } from "../i18n/locale";
+import type { Locale } from "../i18n/locale";
+import { localeChoice } from "../i18n/system";
 import { createApi } from "./api";
 import page from "./ui/index.html";
 
-export const DEFAULT_PORT = 4747;
 const ICONS_DIR = join(import.meta.dir, "ui", "icons");
 const ICONS = new Set(["icon-192.png", "icon-512.png", "icon.svg"]);
 // Requests within this window reuse the last indexing pass instead of starting another.
@@ -69,7 +68,7 @@ export function startServer(opts: ServerOptions) {
       "/icons/:name": (req) => (ICONS.has(req.params.name) ? new Response(Bun.file(join(ICONS_DIR, req.params.name))) : new Response(null, { status: 404 })),
       "/api/*": (req) => api.handle(req),
     },
-    fetch: () => new Response("Não encontrado", { status: 404 }),
+    fetch: () => new Response("Not found", { status: 404 }),
   });
   api = createApi({
     db: opts.db,
@@ -78,7 +77,11 @@ export function startServer(opts: ServerOptions) {
     hosts: [`127.0.0.1:${server.port}`, `localhost:${server.port}`],
     refresh,
     lastIndexedAt: () => indexedAt,
-    chosenLocale: () => opts.locale ?? matchLocale(process.env.LEMBRA_LANG) ?? readConfig(opts.paths.dataDir).lang ?? null,
+    // An explicit choice (flag, LEMBRA_LANG, `lembra lang`) wins over the browser's language.
+    chosenLocale: () => {
+      const choice = localeChoice({ flag: opts.locale, dataDir: opts.paths.dataDir });
+      return choice.source === "system" ? null : choice.locale;
+    },
   });
 
   void index();

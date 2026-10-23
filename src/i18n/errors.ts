@@ -25,6 +25,10 @@ const en = {
   missingParam: (p: { key: string }) => `Missing "${p.key}".`,
   paramNotText: (p: { key: string }) => `"${p.key}" must be text.`,
   paramNotPositive: (p: { key: string }) => `"${p.key}" must be a positive integer.`,
+  routeNotFound: () => "No such route.",
+  hostRefused: () => "Host not allowed.",
+  requestRefused: () => "Request refused.",
+  internalError: () => "Internal error; see lembra's terminal.",
 };
 
 export type ErrorCatalog = typeof en;
@@ -53,6 +57,10 @@ const ptBR: ErrorCatalog = {
   missingParam: (p) => `Informe "${p.key}".`,
   paramNotText: (p) => `"${p.key}" precisa ser texto.`,
   paramNotPositive: (p) => `"${p.key}" precisa ser um inteiro positivo.`,
+  routeNotFound: () => "Rota não encontrada.",
+  hostRefused: () => "Host não permitido.",
+  requestRefused: () => "Requisição recusada.",
+  internalError: () => "Erro interno; veja o terminal do lembra.",
 };
 
 export const ERRORS: Record<Locale, ErrorCatalog> = { en, "pt-BR": ptBR };

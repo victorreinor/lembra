@@ -1,12 +1,12 @@
 import type { Database } from "bun:sqlite";
-import { basename, isAbsolute } from "node:path";
+import { basename } from "node:path";
 import { LembraError } from "../core/errors";
-import { isMissing, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
+import { fileStatus, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
 import { buildHandoff } from "../core/handoff";
 import type { IndexStats } from "../core/indexer";
 import type { Paths } from "../core/paths";
-import { describeReasons, findPending } from "../core/pending";
-import { parseDate, type Filters } from "../core/query";
+import { DEFAULT_PENDING_SINCE, describeReasons, findPending } from "../core/pending";
+import { parseFilters } from "../core/query";
 import { search } from "../core/search";
 import type { Services } from "../core/services";
 import { findSession, getSession, listFacets, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
@@ -31,12 +31,12 @@ export interface ApiOptions {
 }
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
-const fail = (message: string, status: number) => json({ error: message }, status);
+const fail = (error: LembraError, locale: Locale, status: number) => json({ error: error.in(locale) }, status);
 
 export function toSessionDTO(session: Session): SessionDTO {
   return {
     id: session.id,
-    title: session.title ?? "(sem título)",
+    title: session.title,
     repo: session.repo,
     repoName: repoName(session.repo),
     branch: session.branch,
@@ -50,12 +50,11 @@ export function toSessionDTO(session: Session): SessionDTO {
     linesRemoved: session.lines_removed,
     digest: session.digest,
     lastPrompt: session.last_prompt,
-    resumeCommand: session.source === "transcript" ? resumeCommand(session) : null,
+    resumeCommand: resumeCommand(session),
   };
 }
 
 export function toFileDTO(file: StoredFile): FileDTO {
-  const status = !file.sha ? "partial" : !isAbsolute(file.path) ? "image" : isMissing(file) ? "missing" : "disk";
   return {
     id: file.id,
     path: file.path,
@@ -66,21 +65,13 @@ export function toFileDTO(file: StoredFile): FileDTO {
     repoName: repoName(file.repo),
     sessionId: file.session_id,
     versions: file.versions,
-    status,
+    status: fileStatus(file),
     secrets: file.secrets,
   };
 }
 
-function filtersFrom(params: URLSearchParams): Filters {
-  const since = params.get("since");
-  const until = params.get("until");
-  return {
-    repo: params.get("repo") || undefined,
-    branch: params.get("branch") || undefined,
-    since: since ? parseDate(since) : undefined,
-    until: until ? parseDate(until, true) : undefined,
-  };
-}
+const filtersFrom = (params: URLSearchParams) =>
+  parseFilters({ repo: params.get("repo"), branch: params.get("branch"), since: params.get("since"), until: params.get("until") });
 
 function limitFrom(params: URLSearchParams, fallback: number): number {
   const limit = Number(params.get("limit") ?? fallback);
@@ -139,16 +130,16 @@ export function createApi(opts: ApiOptions) {
       }
       if (action === "handoff" && get) return json({ text: buildHandoff(db, session, locale) });
       if (action === "terminal" && !get) {
-        if (session.source !== "transcript") throw new LembraError("promptsOnly");
-        await runInTerminal(resumeCommand(session));
+        const command = resumeCommand(session);
+        if (!command) throw new LembraError("promptsOnly");
+        await runInTerminal(command);
         return json({ ok: true });
       }
     }
 
     if (resource === "files" && !id && get) {
-      const since = params.get("since");
-      let files = latestFiles(db, { term: params.get("term") || undefined, repo: params.get("repo") || undefined, since: since ? parseDate(since) : undefined });
-      if (params.get("missing") === "1") files = files.filter(isMissing);
+      const { repo, since } = filtersFrom(params);
+      const files = latestFiles(db, { term: params.get("term") || undefined, repo, since, missing: params.get("missing") === "1" });
       return json({ files: files.slice(0, limitFrom(params, 100)).map(toFileDTO), total: files.length });
     }
 
@@ -175,21 +166,23 @@ export function createApi(opts: ApiOptions) {
     }
 
     if (resource === "pending" && get) {
-      const items = await findPending(db, { since: parseDate(params.get("since") || "14d"), probe: services.git });
+      const since = params.get("since") || DEFAULT_PENDING_SINCE;
+      const items = await findPending(db, { since, probe: services.git });
       return json({
+        since,
         items: items.map((item) => ({
           repoName: repoName(item.repo),
           branch: item.branch,
           reasons: describeReasons(item, locale),
           sessions: item.sessions,
-          lastSession: toSessionDTO(getSession(db, item.lastSession.id) ?? item.lastSession),
+          lastSession: toSessionDTO(item.lastSession),
         })),
       });
     }
 
     if (resource === "index" && !get) return json((await opts.refresh()) ?? {});
 
-    return fail("Rota não encontrada.", 404);
+    return fail(new LembraError("routeNotFound"), locale, 404);
   }
 
   return {
@@ -198,18 +191,18 @@ export function createApi(opts: ApiOptions) {
       // The page sends its language; other clients get the chosen one, else English.
       const locale = resolveLocale(url.searchParams.get("lang"), req.headers.get("accept-language")?.split(",")[0], opts.chosenLocale());
       // Only this machine's browser, on the address the page was served from.
-      if (!hosts.has(req.headers.get("host") ?? "")) return fail("Host não permitido.", 403);
+      if (!hosts.has(req.headers.get("host") ?? "")) return fail(new LembraError("hostRefused"), locale, 403);
       if (req.method !== "GET") {
         const origin = req.headers.get("origin");
         // A custom header cannot be sent cross-origin without a CORS preflight, which this API never grants.
-        if (req.headers.get("x-lembra") !== "1" || (origin && !hosts.has(new URL(origin).host))) return fail("Requisição recusada.", 403);
+        if (req.headers.get("x-lembra") !== "1" || (origin && !hosts.has(new URL(origin).host))) return fail(new LembraError("requestRefused"), locale, 403);
       }
       try {
         return await route(req, url, locale);
       } catch (error) {
-        if (error instanceof LembraError) return fail(error.in(locale), 400);
+        if (error instanceof LembraError) return fail(error, locale, 400);
         console.error(error);
-        return fail("Erro interno; veja o terminal do lembra.", 500);
+        return fail(new LembraError("internalError"), locale, 500);
       }
     },
   };

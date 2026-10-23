@@ -59,7 +59,7 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
         session.branch && h("span", { class: "session-detail__branch" }, icon("branch", 12), session.branch),
         h("span", { class: "session-detail__id" }, session.id.slice(0, 8)),
       ),
-      h("h2", { id: "session-title", class: "session-detail__title" }, session.title),
+      h("h2", { id: "session-title", class: "session-detail__title" }, session.title ?? t.sessions.untitled),
       h("p", { class: "session-detail__facts" }, facts.join(" · ")),
       session.cwd && h("p", { class: "session-detail__path" }, icon("folder", 13), session.cwd),
     ),

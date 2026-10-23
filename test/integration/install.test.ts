@@ -27,6 +27,7 @@ beforeEach(() => {
     path: `/usr/bin:${join(root, "home", ".local", "bin")}`,
     uid: 501,
     hasClaude: true,
+    sleep: async () => {},
     exec: async (cmd) => {
       commands.push(cmd.join(" "));
       if (cmd.join(" ") === "claude plugin list --json") return { code: 0, out: pluginListed ? `[{"id":"${PLUGIN_ID}"}]` : "[]" };
@@ -118,6 +119,30 @@ test("launchAgentPlist escapes XML and restarts the server only after a crash", 
   const daily = launchAgentPlist({ label: "y", args: ["a"], env: { PATH: "/usr/bin", LANG: "pt_BR.UTF-8" }, log: "/tmp/l.log", calendar: { Hour: 12, Minute: 30 } });
   expect(daily).toContain("<key>Hour</key><integer>12</integer>");
   expect(daily).not.toContain("KeepAlive");
+});
+
+test("bootstraps an agent only after launchd has unloaded the old instance", async () => {
+  const exec = env.exec;
+  let unloading = 0;
+  env.exec = async (cmd) => {
+    const command = cmd.join(" ");
+    if (command.startsWith("launchctl bootout")) unloading = 2;
+    if (command.startsWith("launchctl print") && unloading > 0) {
+      unloading--;
+      commands.push(command);
+      return { code: 0, out: "" };
+    }
+    if (command.startsWith("launchctl print")) {
+      commands.push(command);
+      return { code: 113, out: "not found" };
+    }
+    return exec(cmd);
+  };
+  expect(statuses(await install(env, t)).agents).toBe("changed");
+  const bootout = commands.indexOf(`launchctl bootout gui/501/${AGENTS.server}`);
+  const bootstrap = commands.findIndex((command) => command.startsWith("launchctl bootstrap"));
+  // Still loaded twice, then gone: three checks between bootout and bootstrap.
+  expect(commands.slice(bootout, bootstrap).filter((command) => command.startsWith("launchctl print")).length).toBe(3);
 });
 
 test("reloads an agent whose plist is current but launchd does not have loaded", async () => {

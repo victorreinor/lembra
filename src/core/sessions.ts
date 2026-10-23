@@ -83,7 +83,9 @@ export function listFacets(db: Database, opts: { repo?: string } = {}): { repos:
   return { repos, branches };
 }
 
-export function resumeCommand(session: Session): string {
+// null for sessions known only from history.jsonl: there is no transcript to resume.
+export function resumeCommand(session: Session): string | null {
+  if (session.source !== "transcript") return null;
   const cwd = session.cwd ?? ".";
   return `cd '${cwd.replaceAll("'", `'\\''`)}' && claude --resume ${session.id}`;
 }

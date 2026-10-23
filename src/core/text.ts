@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { formatBytes, formatNumber } from "../i18n/format";
 import { INTL_TAG, type Locale } from "../i18n/locale";
 
 // Plain-text helpers shared by every interface (CLI, MCP, handoff). No color here.
@@ -39,22 +40,12 @@ const formats = new Map<Locale, TextFormat>();
 export function textFormat(locale: Locale): TextFormat {
   const cached = formats.get(locale);
   if (cached) return cached;
-  const tag = INTL_TAG[locale];
-  const dateTime = new Intl.DateTimeFormat(tag, { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const dateTime = new Intl.DateTimeFormat(INTL_TAG[locale], { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
   const format: TextFormat = {
     locale,
     when: (iso) => (iso ? dateTime.format(new Date(iso)).replace(", ", " ") : "—"),
-    bytes(n) {
-      const units = ["B", "KB", "MB", "GB"];
-      let value = n;
-      let unit = 0;
-      while (value >= 1024 && unit < units.length - 1) {
-        value /= 1024;
-        unit++;
-      }
-      return `${value.toLocaleString(tag, { maximumFractionDigits: 1 })} ${units[unit]}`;
-    },
-    count: (n) => n.toLocaleString(tag),
+    bytes: (n) => formatBytes(n, locale),
+    count: (n) => formatNumber(n, locale),
   };
   formats.set(locale, format);
   return format;

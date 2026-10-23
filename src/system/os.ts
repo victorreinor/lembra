@@ -1,10 +1,11 @@
 import { LembraError } from "../core/errors";
+import { exec } from "../core/exec";
 
 // Thin wrappers over the commands each OS offers; everything here is a side effect on the user's desktop.
 
 async function pipeTo(cmd: string[], input: string) {
-  const proc = Bun.spawn(cmd, { stdin: new Blob([input]), stdout: "ignore", stderr: "pipe" });
-  if ((await proc.exited) !== 0) throw new LembraError("commandFailed", { command: cmd[0]!, detail: (await new Response(proc.stderr).text()).trim() });
+  const { code, err } = await exec(cmd, { stdin: input });
+  if (code !== 0) throw new LembraError("commandFailed", { command: cmd[0]!, detail: err });
 }
 
 export async function copyToClipboard(text: string) {
@@ -24,7 +25,6 @@ const appleScriptString = (text: string) => `"${text.replaceAll("\\", "\\\\").re
 // Opens a new Terminal.app window running the command (macOS only).
 export async function runInTerminal(command: string) {
   if (process.platform !== "darwin") throw new LembraError("terminalMacOnly");
-  const script = `tell application "Terminal"\n  activate\n  do script ${appleScriptString(command)}\nend tell`;
-  const proc = Bun.spawn(["osascript", "-e", script], { stdout: "ignore", stderr: "pipe" });
-  if ((await proc.exited) !== 0) throw new LembraError("commandFailed", { command: "osascript", detail: (await new Response(proc.stderr).text()).trim() });
+  // osascript reads the script from stdin when given no file.
+  return pipeTo(["osascript"], `tell application "Terminal"\n  activate\n  do script ${appleScriptString(command)}\nend tell`);
 }

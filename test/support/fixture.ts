@@ -166,6 +166,7 @@ export const decode = (data: Uint8Array) => new TextDecoder().decode(data);
 // Services that never touch git, gh or Claude: every call is recorded and answered from the given tables.
 export function fakeServices(opts: { digest?: (prompt: string) => string; facts?: Record<string, BranchFacts> } = {}) {
   const prompts: string[] = [];
+  const factsOf = (branch: string): BranchFacts => opts.facts?.[branch] ?? { exists: true, upstream: true, ahead: 0, dirty: false, pr: "MERGED" };
   const services: Services = {
     summarizer: () => async (prompt) => {
       prompts.push(prompt);
@@ -174,7 +175,8 @@ export function fakeServices(opts: { digest?: (prompt: string) => string; facts?
     git: {
       root: async (cwd) => cwd,
       defaultBranch: async () => "main",
-      facts: async (_root, branch) => opts.facts?.[branch] ?? { exists: true, upstream: true, ahead: 0, dirty: false, pr: "MERGED" },
+      facts: async (_root, branch) => factsOf(branch),
+      pullRequests: async (_root, branches) => new Map(branches.map((branch) => [branch, factsOf(branch).pr])),
     },
   };
   return { services, prompts };

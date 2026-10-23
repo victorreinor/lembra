@@ -1,8 +1,7 @@
+import { plural } from "./format";
 import type { Locale } from "./locale";
 
 // Text produced by src/core and shared by every interface: handoff briefs, pending reasons, summary prompts.
-
-const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 
 const en = {
   prompts: (n: string, raw: number) => `${n} ${plural(raw, "prompt", "prompts")}`,

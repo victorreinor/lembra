@@ -1,12 +1,14 @@
 // Shapes exchanged between the local API (src/web/api.ts) and the page (src/web/ui). Type-only on the client.
 
+import type { FileStatus } from "../core/files";
 import type { Role } from "../core/transcript";
 
 export type { Role };
 
 export interface SessionDTO {
   id: string;
-  title: string;
+  // null until Claude Code names the session; the page shows t.sessions.untitled.
+  title: string | null;
   repo: string | null;
   repoName: string;
   branch: string | null;
@@ -42,7 +44,6 @@ export interface SearchResponse {
   tookMs: number;
 }
 
-export type FileStatus = "disk" | "missing" | "image" | "partial";
 
 export interface FileDTO {
   id: number;
@@ -106,6 +107,8 @@ export interface PendingDTO {
 }
 
 export interface PendingResponse {
+  // The period actually analyzed (the server's default when none was asked).
+  since: string;
   items: PendingDTO[];
 }
 

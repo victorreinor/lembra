@@ -27,7 +27,7 @@ export function PendingList({ items, onOpenSession }: { items: PendingDTO[]; onO
         h(
           "button",
           { class: "pending-item__session", type: "button", onclick: () => onOpenSession(item.lastSession.id) },
-          h("span", { class: "pending-item__title" }, item.lastSession.title),
+          h("span", { class: "pending-item__title" }, item.lastSession.title ?? t.sessions.untitled),
           h("span", { class: "pending-item__when" }, `${ago(item.lastSession.endedAt)} · ${t.pending.sessions(item.sessions)}`),
         ),
       ),
