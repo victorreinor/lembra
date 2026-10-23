@@ -29,3 +29,14 @@
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
 }
+
+@media (max-width: 640px) {
+  .tabs {
+    display: flex;
+  }
+
+  .tabs__tab {
+    flex: 1;
+    padding: 0 var(--space-2);
+  }
+}

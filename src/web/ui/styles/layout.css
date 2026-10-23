@@ -193,3 +193,22 @@
     display: block;
   }
 }
+
+/* Phone width: brand, search and views stack; the view tabs share the row evenly. */
+@media (max-width: 640px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-header .search-bar {
+    order: 2;
+  }
+
+  .app-header .tabs {
+    order: 3;
+  }
+
+  .brand__name {
+    font-size: var(--text-2xl);
+  }
+}
