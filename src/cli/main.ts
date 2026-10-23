@@ -26,6 +26,7 @@ const OPTIONS = {
   model: { type: "string" },
   port: { type: "string" },
   serve: { type: "boolean" },
+  "dry-run": { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 

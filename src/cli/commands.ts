@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
-import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join } from "node:path";
 import { restoreTranscript } from "../core/archive";
 import { LembraError } from "../core/errors";
 import { isMissing, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
@@ -15,6 +16,7 @@ import type { Services } from "../core/services";
 import { collectStats } from "../core/stats";
 import { sessionsToSummarize, summarizeSession } from "../core/summarize";
 import { createMcpHandler, serveStdio } from "../mcp/server";
+import { install, systemExec, uninstall, type InstallEnv, type StepResult, type StepStatus } from "../system/install";
 import { copyToClipboard, openUrl } from "../system/os";
 import { VERSION } from "../version";
 import { bold, bytes, count, cyan, dim, green, highlight, oneLine, red, repoName, shortPath, when, yellow } from "./format";
@@ -45,6 +47,7 @@ export interface Options {
   model?: string;
   port?: string;
   serve?: boolean;
+  "dry-run"?: boolean;
   help?: boolean;
 }
 
@@ -76,12 +79,59 @@ export const COMMANDS: Record<string, Command> = {
   index: indexCommand,
   stats: statsCommand,
   ui: uiCommand,
+  install: installCommand,
+  uninstall: uninstallCommand,
   mcp: mcpCommand,
   hook: hookCommand,
 };
 
 // Commands that manage indexing themselves instead of the automatic refresh before each read.
-export const SELF_INDEXING = new Set(["index", "ui", "mcp", "hook"]);
+export const SELF_INDEXING = new Set(["index", "ui", "install", "uninstall", "mcp", "hook"]);
+
+const STEP_MARK: Record<StepStatus, string> = { ok: green("✓"), changed: cyan("●"), skipped: yellow("–"), failed: red("✗") };
+
+function installEnv(paths: Paths): InstallEnv {
+  const cliEntry = realpathSync(join(import.meta.dir, "index.ts"));
+  return {
+    home: homedir(),
+    claudeDir: paths.claudeDir,
+    dataDir: paths.dataDir,
+    repoRoot: join(dirname(cliEntry), "..", ".."),
+    cliEntry,
+    bunPath: process.execPath,
+    platform: process.platform,
+    path: process.env.PATH ?? "/usr/bin:/bin",
+    uid: process.getuid?.() ?? 0,
+    exec: systemExec,
+    hasClaude: Boolean(Bun.which("claude")),
+  };
+}
+
+function printSteps(io: Io, results: StepResult[]) {
+  for (const result of results) io.out(`${STEP_MARK[result.status]} ${bold(result.step.padEnd(26))} ${dim(result.detail)}`);
+}
+
+// One command to set everything up: PATH link, retention, plugin (MCP + hooks + skills), launchd, first index.
+async function installCommand({ db, paths, options, io }: Context): Promise<number> {
+  const results = await install(installEnv(paths), { dryRun: options["dry-run"] });
+  printSteps(io, results);
+  if (options["dry-run"]) {
+    io.out(dim("\nNada foi alterado (--dry-run)."));
+    return 0;
+  }
+  const stats = await indexAll(db, paths, { archive: true });
+  printSteps(io, [{ step: "índice", status: "ok", detail: `${count(stats.scanned)} transcripts, ${count(stats.messages)} mensagens novas` }]);
+  io.out(`\n${bold("Pronto.")} Abra ${cyan("http://localhost:4747")} (ou ${cyan("lembra ui")}).`);
+  io.out(dim("Numa sessão nova do Claude Code: pergunte \"já fiz algo parecido?\" ou use /lembra:handoff <sessão>."));
+  return results.some((result) => result.status === "failed") ? 1 : 0;
+}
+
+async function uninstallCommand({ paths, io }: Context): Promise<number> {
+  const results = await uninstall(installEnv(paths));
+  printSteps(io, results);
+  io.out(dim(`\nSeus dados continuam em ${shortPath(paths.dataDir)}. Para apagar: rm -rf ${shortPath(paths.dataDir)}`));
+  return results.some((result) => result.status === "failed") ? 1 : 0;
+}
 
 // Opens the web page, starting the local server unless one (launchd or another terminal) already runs.
 async function uiCommand({ db, paths, options, io, services }: Context): Promise<number> {
@@ -90,7 +140,8 @@ async function uiCommand({ db, paths, options, io, services }: Context): Promise
   if (!Number.isInteger(port) || port <= 0) throw new LembraError(`--port inválida: ${options.port}`);
   const url = `http://localhost:${port}`;
   if (await isServerRunning(port)) {
-    if (options.serve) throw new LembraError(`Já existe um lembra rodando em ${url}.`);
+    // Exit 0 so launchd (KeepAlive on failure only) does not keep retrying while another lembra serves.
+    if (options.serve) return io.out(dim(`Já existe um lembra rodando em ${url}; nada a fazer.`)) ?? 0;
     openUrl(url);
     io.out(`${green("Aberto")} ${url} ${dim("(servidor já estava rodando)")}`);
     return 0;

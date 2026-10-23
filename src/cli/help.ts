@@ -19,6 +19,10 @@ Acompanhamento
   lembra pending                branches com sessão recente e trabalho não entregue
   lembra summarize [sessão]     resume sessões com o Claude (Haiku) usando seu login
 
+Instalação
+  lembra install                configura tudo: PATH, retenção, plugin, página e indexação diária
+  lembra uninstall              desfaz o install (mantém seus dados em ~/.lembra)
+
 Manutenção
   lembra index                  indexa e arquiva tudo (incremental)
   lembra stats                  tamanho do cofre e retenção do Claude Code
@@ -43,6 +47,7 @@ Opções
       --model <nome>           modelo dos resumos, padrão haiku (summarize)
       --port <n>               porta da página, padrão 4747 (ui)
       --serve                  só sobe o servidor, sem abrir o navegador (ui)
+      --dry-run                mostra o que mudaria, sem mudar nada (install)
 
 Exemplos
   lembra faturamento --repo billing --since 7d
