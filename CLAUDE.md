@@ -39,6 +39,7 @@ src/core/            regras e dados; sem console, sem process.exit, sem texto fi
   handoff.ts         resumo de passagem em Markdown (por idioma)
   summarize.ts       resumos com claude -p (Runner injetável)
   pending.ts         branches com trabalho não entregue (GitProbe injetável)
+  secrets.ts         mascara credenciais no texto indexado (REDACTION_VERSION)
   errors.ts          LembraError(código, parâmetros), renderizado por idioma
   text.ts            textFormat(locale): datas, tamanhos, números
   config.ts, stats.ts, repo.ts, blobs.ts, services.ts, paths.ts
@@ -60,6 +61,7 @@ test/                unit/, integration/, web/ (happy-dom), support/fixture.ts
 - Texto para o modelo (descrições de ferramentas MCP, skills) fica em inglês e pede que o Claude responda no idioma do usuário.
 - Código, nomes e comentários em inglês. Os docs do projeto ficam em português, exceto o `README.en.md`.
 - Mudou o que o parser extrai? Incremente `PARSER_VERSION` e documente em `docs/claude-code-data.md`.
+- Mudou as regras de segredos? Incremente `REDACTION_VERSION` em `src/core/secrets.ts` e acrescente casos positivos e negativos em `test/unit/secrets.test.ts`. Texto indexado nunca entra sem passar por `redact`.
 - Schema só aditivo: `CREATE … IF NOT EXISTS` ou `ADDED_COLUMNS` em `db.ts`. O banco é descartável (`rm -rf ~/.lembra && lembra index`).
 - Efeitos fora do cofre (git, gh, claude, launchctl, osascript) passam por interfaces injetáveis (`Services`, `InstallEnv.exec`). Os testes nunca chamam essas ferramentas de verdade.
 - Toda feature precisa de teste unitário da parte pura e de integração com `test/support/fixture.ts`. Componentes novos precisam de teste em `test/web`.

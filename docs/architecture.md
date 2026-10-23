@@ -69,6 +69,15 @@ Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`).
 - O score é o `bm25` com pesos por papel: prompt ×2; resumo do `/compact` e resumo do Haiku ×1,5; resposta ×1. Títulos (`sessions_fts`) entram com peso ×3.
 - Os resultados vêm agrupados por sessão, com até dois trechos. Os termos encontrados chegam marcados com `\x01…\x02`, e cada interface decide como destacar.
 
+## Segredos (`secrets.ts`)
+
+`redact` aplica uma lista de regras: tokens com prefixo conhecido (GitHub, GitLab, Slack, Stripe, OpenAI, Anthropic, Google, npm), chaves AWS, JWTs, blocos de chave privada, `Bearer …`, senhas em URLs (`postgres://user:senha@`), variáveis com nome de segredo (`DB_PASSWORD=…`) e chaves de configuração com valor entre aspas (`"accessToken": "…"`). Cada ocorrência vira `[REDACTED:tipo]`. Referências como `$VAR`, `process.env.X`, `${X}` e números curtos (`TOKEN_TTL=3600`) não são mascaradas.
+
+- **Texto indexado:** prompts, respostas, resumos (inclusive a saída do Haiku) e títulos passam por `redact` antes de ir para o banco. Por isso nada mascarado aparece na busca, na página, no handoff, no MCP ou no que é enviado para os resumos.
+- **Arquivos guardados:** ficam byte a byte, porque o restore precisa devolver o arquivo exato. A coluna `files.secrets` conta o que foi encontrado, a página mostra um selo, e a ferramenta MCP `get_file` devolve o conteúdo mascarado com um aviso. `lembra cat` e o download na página entregam o original a você.
+- **Migração:** `REDACTION_VERSION` fica na tabela `meta`. Quando a versão muda, `redactStored` remascara todas as mensagens, títulos e resumos, recalcula os títulos derivados e reconta os segredos dos arquivos. Um trigger `AFTER UPDATE` mantém o FTS em dia.
+- **A cópia bruta** em `raw/` espelha o `~/.claude` sem alteração (ela serve para devolver transcripts ao Claude Code), então continua contendo o que o próprio Claude Code já guarda em texto puro.
+
 ## Handoff, resumos e pendências
 
 - **`handoff.ts`** monta um Markdown com pedido inicial, último resumo do `/compact`, últimos pedidos, última resposta e arquivos (com `lembra cat <id>`). É usado pela CLI, pela página e pela ferramenta MCP `handoff`.

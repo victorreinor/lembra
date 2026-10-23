@@ -41,13 +41,18 @@
 - [x] `lembra lang`, `--lang`, `LEMBRA_LANG` e seletor PT/EN na página
 - [x] Catálogos tipados: chave faltando é erro de compilação ([docs/i18n.md](docs/i18n.md))
 
+## ✅ Segredos e telas pequenas (v0.3)
+
+- [x] Mascaramento de segredos no índice (busca, página, handoff, MCP, resumos), com migração automática do banco existente
+- [x] Arquivos com segredos sinalizados e mascarados quando lidos pelo Claude via MCP; restore continua byte a byte
+- [x] Layout de celular conferido em 390 px: cabeçalho, abas e filtros empilham sem estouro horizontal
+
 ## 💡 Próximas ideias
 
 - [ ] Relatório do dia e da semana por repo, pronto para daily ou reporte
 - [ ] Custo por projeto e por semana (o dado já está no banco)
 - [ ] Favoritos, tags e notas em sessões
 - [ ] Exportar uma sessão em Markdown
-- [ ] Mascarar segredos (tokens, senhas) na indexação
 - [ ] Busca semântica com embeddings locais
 - [ ] Extensão do Raycast e app de barra de menu
 - [ ] Capturar arquivos gerados via Bash (redirect, heredoc)
@@ -62,6 +67,7 @@
 - Sessões vindas só do `history.jsonl` não têm branch, respostas nem arquivos, e não podem ser retomadas (só via handoff).
 - Imagens lidas pelo Read não entram no cofre, porque o resultado da ferramenta não traz o caminho.
 - "Abrir no Terminal" usa o Terminal.app; iTerm e outros ainda não.
-- O layout estreito (celular, janela pequena) foi feito com media queries, mas ainda não foi conferido num aparelho real.
+- O layout de celular foi conferido num viewport emulado de 390 px, não num aparelho físico.
+- O mascaramento usa padrões conhecidos (tokens com prefixo, variáveis com nome de segredo, URLs com senha); um segredo sem formato reconhecível, colado solto no texto, passa.
 - A primeira indexação de ~2,5 GB chega a ~750 MB de memória; as seguintes são incrementais e leves.
 - Testado em macOS. O CI roda em Linux; Windows não foi testado.

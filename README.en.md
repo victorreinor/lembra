@@ -156,7 +156,8 @@ More in [docs/architecture.md](docs/architecture.md). Claude Code's file format 
 ## Your data
 
 - **Everything stays local.** The index lives in `~/.lembra` (mode `700`). The page only listens on `127.0.0.1`, refuses other hosts and requires its own header for any write. Nothing is sent over the network; summaries use your own `claude -p`, only when you run `lembra summarize`.
-- **The vault holds everything you ever pasted into a prompt**, including tokens and customer data. Do not sync `~/.lembra` to cloud services.
+- **Secrets are masked in the index.** Tokens (GitHub, AWS, Slack, Stripe, OpenAI, Anthropic…), JWTs, private keys, passwords in database URLs and variables like `DB_PASSWORD=` become `[REDACTED:kind]` in everything searchable: search, the page, handoffs, MCP and what goes into summaries. Stored files stay byte-exact, since restore must give back the exact file; they get a "secrets inside" badge and reach Claude masked through MCP. `lembra stats` shows how many were found.
+- **Even so, the vault keeps files with sensitive content** and customer data. Do not sync `~/.lembra` to cloud services.
 - **To start over:** `rm -rf ~/.lembra && lembra index`. The database can be fully rebuilt.
 
 ## Roadmap

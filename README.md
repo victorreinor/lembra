@@ -161,7 +161,8 @@ Mais detalhes em [docs/architecture.md](docs/architecture.md). O formato dos arq
 ## Seus dados
 
 - **Tudo é local.** O índice fica em `~/.lembra` (permissão `700`). A página só escuta em `127.0.0.1`, recusa outros hosts e exige um cabeçalho próprio para qualquer escrita. Nada é enviado para a rede; os resumos usam o seu próprio `claude -p`, só quando você roda `lembra summarize`.
-- **O cofre contém tudo que você já colou num prompt**, inclusive tokens e dados de clientes. Não sincronize `~/.lembra` com serviços de nuvem.
+- **Segredos são mascarados no índice.** Tokens (GitHub, AWS, Slack, Stripe, OpenAI, Anthropic…), JWTs, chaves privadas, senhas em URLs de banco e variáveis como `DB_PASSWORD=` viram `[REDACTED:tipo]` em tudo que é pesquisável: busca, página, handoff, MCP e o que vai para os resumos. Os arquivos guardados ficam intactos, porque o restore precisa devolver o arquivo exato; eles ganham o selo "contém segredos" e chegam mascarados ao Claude pelo MCP. O `lembra stats` mostra quantos foram encontrados.
+- **Ainda assim, o cofre guarda arquivos com conteúdo sensível** e dados de clientes. Não sincronize `~/.lembra` com serviços de nuvem.
 - **Para recomeçar do zero:** `rm -rf ~/.lembra && lembra index`. O banco é totalmente reconstruível.
 
 ## Roadmap

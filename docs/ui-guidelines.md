@@ -75,6 +75,10 @@ Cada componente vive em `src/web/ui/components/<nome>/` com `<nome>.ts` (uma fun
 
 O texto chega por `t` (`lib/i18n.ts`), que é lido na hora de renderizar. A troca de idioma recarrega a página.
 
+## Telas estreitas
+
+Há dois pontos de quebra. Até **960 px**, a lista ocupa a largura toda e o detalhe vira uma tela cheia com o botão "Voltar". Até **640 px**, marca, busca e abas empilham, as abas dividem a linha por igual, e repo e branch dividem uma linha e encolhem (`min-width: 0`, nunca a largura da opção mais longa). Os chips quebram linha. A regra é não haver rolagem horizontal: confira com `bun run demo` e um `<iframe>` de 390 px, comparando `scrollWidth` com `clientWidth` do documento.
+
 ## Acessibilidade (WCAG 2.2 AA)
 
 - Contraste mínimo de 4.5:1 para texto e 3:1 para componentes e foco, nos dois temas.
