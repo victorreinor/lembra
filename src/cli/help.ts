@@ -1,6 +1,7 @@
 export const HELP = `lembra — o histórico permanente e pesquisável do Claude Code
 
 Buscar e retomar
+  lembra ui                     abre a página de busca no navegador (localhost:4747)
   lembra                        sessões mais recentes
   lembra <termos>               busca (atalho de "lembra search")
   lembra search <termos>        busca em prompts, respostas, resumos e títulos
@@ -40,6 +41,8 @@ Opções
       --print                  só mostra o comando, sem abrir (resume)
   -c, --copy                   copia para a área de transferência (handoff)
       --model <nome>           modelo dos resumos, padrão haiku (summarize)
+      --port <n>               porta da página, padrão 4747 (ui)
+      --serve                  só sobe o servidor, sem abrir o navegador (ui)
 
 Exemplos
   lembra faturamento --repo billing --since 7d

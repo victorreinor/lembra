@@ -1,0 +1,205 @@
+/*
+ * Design tokens: the only place with literal colors, sizes and durations.
+ * Components use semantic tokens (--color-*, --space-*, …), never the primitives.
+ * Theme: "archivist's index" — warm paper by day, ink-blue archive by night, one blue accent.
+ */
+
+:root {
+  /* primitives: paper & ink */
+  --paper-50: #fbf9f4;
+  --paper-100: #f4f1ea;
+  --paper-200: #ebe6da;
+  --paper-300: #ddd6c6;
+  --ink-400: #8a8475;
+  --ink-500: #6b6557;
+  --ink-700: #3d3a33;
+  --ink-900: #1c1a16;
+  --night-950: #0f1016;
+  --night-900: #15171f;
+  --night-850: #1b1e28;
+  --night-800: #232634;
+  --night-700: #313547;
+  --moon-300: #a8a294;
+  --moon-100: #ece6d8;
+  --blue-300: #93a6ff;
+  --blue-500: #3d5ce0;
+  --blue-600: #3048c9;
+  --marker-300: #ffe27a;
+  --green-600: #2f7d4f;
+  --green-300: #7fd1a0;
+  --red-600: #b5402f;
+  --red-300: #f19b8c;
+  --amber-700: #8a5a00;
+  --amber-300: #f2c46b;
+
+  /* semantic: surfaces & text */
+  --color-bg: var(--paper-100);
+  --color-surface: var(--paper-50);
+  --color-surface-hover: #f7f3ea;
+  --color-surface-selected: #ffffff;
+  --color-sunken: var(--paper-200);
+  --color-border: var(--paper-300);
+  --color-border-strong: #c9c0ac;
+  --color-text: var(--ink-900);
+  --color-text-muted: var(--ink-500);
+  --color-text-faint: var(--ink-400);
+  --color-accent: var(--blue-600);
+  --color-accent-hover: var(--blue-500);
+  --color-accent-text: #ffffff;
+  --color-accent-soft: rgb(48 72 201 / 0.09);
+  --color-highlight: rgb(255 214 64 / 0.62);
+  --color-success: var(--green-600);
+  --color-danger: var(--red-600);
+  --color-warning: var(--amber-700);
+  --color-success-soft: rgb(47 125 79 / 0.11);
+  --color-danger-soft: rgb(181 64 47 / 0.1);
+  --color-warning-soft: rgb(138 90 0 / 0.1);
+  --color-focus-ring: var(--blue-500);
+  --color-overlay: rgb(28 26 22 / 0.42);
+  --color-inverse-bg: var(--ink-900);
+  --color-inverse-text: var(--paper-50);
+  --color-on-accent-soft: rgb(255 255 255 / 0.18);
+  --grain-opacity: 0.045;
+
+  /* repo tab: hue comes from the repo name (--repo-hue on the element) */
+  --repo-lightness: 0.66;
+  --repo-text-lightness: 0.46;
+  --repo-chroma: 0.13;
+
+  /* type */
+  --font-display: "Newsreader Variable", "Iowan Old Style", Georgia, serif;
+  --font-sans: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14.5px;
+  --text-lg: 17px;
+  --text-xl: 21px;
+  --text-2xl: 27px;
+  --text-3xl: 34px;
+  --leading-tight: 1.2;
+  --leading-snug: 1.38;
+  --leading-normal: 1.55;
+  --tracking-label: 0.12em;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* space: 4 px scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* layout */
+  --layout-max: 1440px;
+  --list-width: minmax(380px, 46%);
+  --header-height: 132px;
+  --tab-stripe: 4px;
+  --target-min: 28px;
+
+  /* shape, depth, motion */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 0 rgb(28 26 22 / 0.04), 0 1px 3px rgb(28 26 22 / 0.06);
+  --shadow-md: 0 2px 4px rgb(28 26 22 / 0.05), 0 12px 32px -8px rgb(28 26 22 / 0.16);
+  --shadow-lg: 0 24px 64px -12px rgb(28 26 22 / 0.3);
+  --duration-fast: 120ms;
+  --duration-normal: 220ms;
+  --duration-slow: 420ms;
+  --easing: cubic-bezier(0.2, 0, 0, 1);
+  --stagger: 22ms;
+}
+
+/* Night archive. Defined twice: once for the system preference, once for an explicit choice. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: var(--night-950);
+    --color-surface: var(--night-900);
+    --color-surface-hover: var(--night-850);
+    --color-surface-selected: var(--night-800);
+    --color-sunken: var(--night-850);
+    --color-border: var(--night-800);
+    --color-border-strong: var(--night-700);
+    --color-text: var(--moon-100);
+    --color-text-muted: var(--moon-300);
+    --color-text-faint: #77736a;
+    --color-accent: var(--blue-300);
+    --color-accent-hover: #b3c1ff;
+    --color-accent-text: var(--night-950);
+    --color-accent-soft: rgb(147 166 255 / 0.12);
+    --color-highlight: rgb(255 214 64 / 0.3);
+    --color-success: var(--green-300);
+    --color-danger: var(--red-300);
+    --color-warning: var(--amber-300);
+    --color-success-soft: rgb(127 209 160 / 0.12);
+    --color-danger-soft: rgb(241 155 140 / 0.12);
+    --color-warning-soft: rgb(242 196 107 / 0.12);
+    --color-focus-ring: var(--blue-300);
+    --color-overlay: rgb(0 0 0 / 0.55);
+    --color-inverse-bg: var(--moon-100);
+    --color-inverse-text: var(--night-950);
+    --color-on-accent-soft: rgb(15 16 22 / 0.14);
+    --grain-opacity: 0.06;
+    --repo-lightness: 0.74;
+    --repo-text-lightness: 0.82;
+    --repo-chroma: 0.12;
+    --shadow-sm: 0 1px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 12px 32px -8px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 24px 64px -12px rgb(0 0 0 / 0.7);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: var(--night-950);
+  --color-surface: var(--night-900);
+  --color-surface-hover: var(--night-850);
+  --color-surface-selected: var(--night-800);
+  --color-sunken: var(--night-850);
+  --color-border: var(--night-800);
+  --color-border-strong: var(--night-700);
+  --color-text: var(--moon-100);
+  --color-text-muted: var(--moon-300);
+  --color-text-faint: #77736a;
+  --color-accent: var(--blue-300);
+  --color-accent-hover: #b3c1ff;
+  --color-accent-text: var(--night-950);
+  --color-accent-soft: rgb(147 166 255 / 0.12);
+  --color-highlight: rgb(255 214 64 / 0.3);
+  --color-success: var(--green-300);
+  --color-danger: var(--red-300);
+  --color-warning: var(--amber-300);
+  --color-success-soft: rgb(127 209 160 / 0.12);
+  --color-danger-soft: rgb(241 155 140 / 0.12);
+  --color-warning-soft: rgb(242 196 107 / 0.12);
+  --color-focus-ring: var(--blue-300);
+  --color-overlay: rgb(0 0 0 / 0.55);
+  --color-inverse-bg: var(--moon-100);
+  --color-inverse-text: var(--night-950);
+  --color-on-accent-soft: rgb(15 16 22 / 0.14);
+  --grain-opacity: 0.06;
+  --repo-lightness: 0.74;
+  --repo-text-lightness: 0.82;
+  --repo-chroma: 0.12;
+  --shadow-sm: 0 1px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 12px 32px -8px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 24px 64px -12px rgb(0 0 0 / 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+    --stagger: 0ms;
+  }
+}

@@ -1,0 +1,195 @@
+/* Page skeleton: sticky header, filters, list + detail panes, status bar. */
+
+.app {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  max-width: var(--layout-max);
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 var(--space-8);
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-5) 0 var(--space-3);
+  background: var(--color-bg);
+}
+
+/* Soft fade so cards slide under the header instead of being cut. */
+.app-header::after {
+  content: "";
+  position: absolute;
+  inset: 100% 0 auto;
+  height: var(--space-3);
+  background: linear-gradient(var(--color-bg), transparent);
+  pointer-events: none;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand__mark {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.brand__name {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-style: italic;
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.app-filters {
+  padding: var(--space-1) 0 var(--space-5);
+}
+
+.app-main {
+  display: grid;
+  grid-template-columns: var(--list-width) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-6);
+  padding-bottom: var(--space-8);
+}
+
+.app-main[data-view="files"],
+.app-main[data-view="pending"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app-main[data-view="files"] .detail-pane,
+.app-main[data-view="pending"] .detail-pane {
+  display: none;
+}
+
+.list-pane {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.list-header {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-1);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Indeterminate progress while a newer list is loading over the current one. */
+.app-main[aria-busy="true"] .list-header::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  height: 2px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  animation: progress calc(var(--duration-slow) * 3) var(--easing) infinite;
+}
+
+@keyframes progress {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(340%);
+  }
+}
+
+.results {
+  display: grid;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.results__message {
+  list-style: none;
+}
+
+.app-main[data-view="files"] .results {
+  gap: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.detail-pane {
+  position: sticky;
+  top: calc(var(--header-offset, var(--header-height)) + var(--space-2));
+  max-height: calc(100dvh - var(--header-offset, var(--header-height)) - var(--space-6));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-md);
+}
+
+.detail-pane:focus {
+  outline: none;
+}
+
+@media (max-width: 960px) {
+  .app {
+    padding: 0 var(--space-4);
+  }
+
+  .app-header {
+    grid-template-columns: 1fr auto;
+    gap: var(--space-3);
+  }
+
+  .app-header .search-bar {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+
+  .app-main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .detail-pane {
+    display: none;
+  }
+
+  /* On narrow screens the detail takes over the screen, with a back button. */
+  .app-main[data-detail-open] .detail-pane {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: block;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .app-main[data-detail-open] .session-detail__back {
+    display: block;
+  }
+}

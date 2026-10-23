@@ -15,7 +15,7 @@ import type { Services } from "../core/services";
 import { collectStats } from "../core/stats";
 import { sessionsToSummarize, summarizeSession } from "../core/summarize";
 import { createMcpHandler, serveStdio } from "../mcp/server";
-import { copyToClipboard } from "../system/os";
+import { copyToClipboard, openUrl } from "../system/os";
 import { VERSION } from "../version";
 import { bold, bytes, count, cyan, dim, green, highlight, oneLine, red, repoName, shortPath, when, yellow } from "./format";
 
@@ -43,6 +43,8 @@ export interface Options {
   print?: boolean;
   copy?: boolean;
   model?: string;
+  port?: string;
+  serve?: boolean;
   help?: boolean;
 }
 
@@ -73,12 +75,31 @@ export const COMMANDS: Record<string, Command> = {
   summarize: summarizeCommand,
   index: indexCommand,
   stats: statsCommand,
+  ui: uiCommand,
   mcp: mcpCommand,
   hook: hookCommand,
 };
 
 // Commands that manage indexing themselves instead of the automatic refresh before each read.
-export const SELF_INDEXING = new Set(["index", "mcp", "hook"]);
+export const SELF_INDEXING = new Set(["index", "ui", "mcp", "hook"]);
+
+// Opens the web page, starting the local server unless one (launchd or another terminal) already runs.
+async function uiCommand({ db, paths, options, io, services }: Context): Promise<number> {
+  const { DEFAULT_PORT, isServerRunning, startServer } = await import("../web/server");
+  const port = Number(options.port ?? DEFAULT_PORT);
+  if (!Number.isInteger(port) || port <= 0) throw new LembraError(`--port inválida: ${options.port}`);
+  const url = `http://localhost:${port}`;
+  if (await isServerRunning(port)) {
+    if (options.serve) throw new LembraError(`Já existe um lembra rodando em ${url}.`);
+    openUrl(url);
+    io.out(`${green("Aberto")} ${url} ${dim("(servidor já estava rodando)")}`);
+    return 0;
+  }
+  startServer({ db, paths, services, port });
+  io.out(`${green("lembra")} em ${cyan(url)} ${dim("· Ctrl+C para parar")}`);
+  if (!options.serve) openUrl(url);
+  return new Promise<number>(() => {}); // serves until the process is stopped
+}
 
 // Started by Claude Code (plugin .mcp.json). Each tool call refreshes the index first.
 async function mcpCommand({ db, paths, services }: Context) {

@@ -1,0 +1,59 @@
+.help-dialog {
+  width: min(520px, calc(100vw - var(--space-8)));
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+}
+
+.help-dialog[open] {
+  display: grid;
+  gap: var(--space-4);
+  animation: rise-in var(--duration-normal) var(--easing) both;
+}
+
+.help-dialog::backdrop {
+  background: var(--color-overlay);
+}
+
+.help-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.help-dialog__title {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-medium);
+}
+
+.help-dialog__list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  align-items: center;
+  font-size: var(--text-sm);
+}
+
+.help-dialog__list dt {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.help-dialog__list dd {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.help-dialog__list code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.help-dialog__foot {
+  color: var(--color-text-faint);
+  font-size: var(--text-xs);
+}

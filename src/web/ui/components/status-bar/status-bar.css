@@ -1,0 +1,26 @@
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0 var(--space-5);
+  border-top: 1px solid var(--color-border);
+}
+
+.status-bar__text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.status-bar__warning {
+  color: var(--color-danger);
+}
+
+.status-bar__actions {
+  display: inline-flex;
+  gap: var(--space-1);
+}

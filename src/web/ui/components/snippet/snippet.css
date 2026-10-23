@@ -1,0 +1,33 @@
+.snippet {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+.snippet__who {
+  justify-self: end;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+}
+
+.snippet[data-role="prompt"] .snippet__who {
+  color: var(--color-accent);
+}
+
+.snippet__text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.snippet[data-role="prompt"] .snippet__text {
+  color: var(--color-text);
+}

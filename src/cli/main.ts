@@ -24,6 +24,8 @@ const OPTIONS = {
   print: { type: "boolean" },
   copy: { type: "boolean", short: "c" },
   model: { type: "string" },
+  port: { type: "string" },
+  serve: { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 

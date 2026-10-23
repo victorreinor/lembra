@@ -1,0 +1,76 @@
+.file-list {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  list-style: none;
+}
+
+.file-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast) var(--easing);
+}
+
+.file-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.file-row__kind {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.04em;
+  text-align: right;
+}
+
+.file-row__main {
+  display: grid;
+  min-width: 0;
+}
+
+.file-row__path {
+  display: flex;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+/* The folder gives way first; the file name always stays readable. */
+.file-row__dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-faint);
+  text-overflow: ellipsis;
+}
+
+.file-row__name {
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+}
+
+.file-row__meta {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.file-row__actions {
+  display: inline-flex;
+  gap: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .file-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .file-row__kind,
+  .file-row__status {
+    display: none;
+  }
+}

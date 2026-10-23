@@ -1,0 +1,30 @@
+.day-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-5) 0 var(--space-1);
+  list-style: none;
+}
+
+.day-divider:first-child {
+  margin-top: 0;
+}
+
+.day-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed var(--color-border-strong);
+}
+
+/* A slightly crooked rubber stamp, as on an archive card. */
+.day-divider__stamp {
+  padding: 1px var(--space-2);
+  border: 1px solid currentColor;
+  border-radius: var(--radius-xs);
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-label);
+  transform: rotate(-1.5deg);
+}

@@ -27,7 +27,7 @@ describe("lembra", () => {
   test("--help explains every command", async () => {
     const { code, out } = await lembra("--help");
     expect(code).toBe(0);
-    for (const command of ["search", "list", "show", "resume", "handoff", "files", "restore", "cat", "pending", "summarize", "index", "stats"]) {
+    for (const command of ["ui", "search", "list", "show", "resume", "handoff", "files", "restore", "cat", "pending", "summarize", "index", "stats"]) {
       expect(out).toContain(`lembra ${command}`);
     }
   });
