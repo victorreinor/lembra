@@ -26,7 +26,7 @@ export function HelpDialog() {
       "div",
       { class: "help-dialog__head" },
       h("h2", { id: "help-title", class: "help-dialog__title" }, t.help.title),
-      Button({ label: t.help.close, icon: "close", variant: "ghost", size: "sm", iconOnly: true, onClick: () => dialog.close() }),
+      Button({ label: t.help.close, icon: "close", iconOnly: true, onClick: () => void dialog.close() }),
     ),
     h("dl", { class: "help-dialog__list" }, shortcuts.map(([keys, action]) => [h("dt", null, keys.map((key) => Kbd(key))), h("dd", null, action)])),
     h("h3", { class: "label" }, t.help.searchTitle),

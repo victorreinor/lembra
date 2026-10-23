@@ -1,9 +1,9 @@
 import { h, highlighted } from "../../lib/dom";
 import { t } from "../../lib/i18n";
-import type { SnippetDTO } from "../../../types";
+import type { ResultDTO } from "../../../types";
 
 /** One search match, with the matched words marked. Example: Snippet({ role: "prompt", ts, text }) */
-export function Snippet(snippet: SnippetDTO): HTMLElement {
+export function Snippet(snippet: ResultDTO["snippets"][number]): HTMLElement {
   return h(
     "span",
     { class: "snippet", dataset: { role: snippet.role } },

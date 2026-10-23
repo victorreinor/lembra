@@ -6,6 +6,8 @@ import { resumeCommand, sessionMessages, type Session } from "./sessions";
 import { clip, oneLine, shortPath, textFormat } from "./text";
 
 const RECENT_PROMPTS = 8;
+// Longer than any clip below, so the clips still mark what they cut.
+const MAX_MESSAGE_CHARS = 5000;
 
 const quote = (text: string) => text.replace(/^/gm, "> ");
 
@@ -13,7 +15,7 @@ const quote = (text: string) => text.replace(/^/gm, "> ");
 export function buildHandoff(db: Database, session: Session, locale: Locale): string {
   const t = CORE[locale];
   const format = textFormat(locale);
-  const messages = sessionMessages(db, session.id, { replies: true });
+  const messages = sessionMessages(db, session.id, { replies: true, maxChars: MAX_MESSAGE_CHARS });
   const prompts = messages.filter((message) => message.role === "prompt");
   const lastSummary = messages.findLast((message) => message.role === "summary");
   const lastReply = messages.findLast((message) => message.role === "reply");

@@ -9,7 +9,7 @@ import { DEFAULT_PENDING_SINCE, describeReasons, findPending } from "../core/pen
 import { parseFilters } from "../core/query";
 import { search } from "../core/search";
 import type { Services } from "../core/services";
-import { findSession, getSession, listFacets, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
+import { findSession, getMessage, listFacets, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
 import { collectStats } from "../core/stats";
 import { repoName, shortPath } from "../core/text";
 import { runInTerminal } from "../system/os";
@@ -29,6 +29,9 @@ export interface ApiOptions {
   // Language chosen explicitly (lembra lang, LEMBRA_LANG, --lang); null leaves it to each browser.
   chosenLocale(): Locale | null;
 }
+
+// The session detail sends at most this much of each message; the rest is one click away.
+const MESSAGE_PREVIEW_CHARS = 4000;
 
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 const fail = (error: LembraError, locale: Locale, status: number) => json({ error: error.in(locale) }, status);
@@ -124,7 +127,7 @@ export function createApi(opts: ApiOptions) {
     if (resource === "sessions" && id) {
       const session = findSession(db, decodeURIComponent(id));
       if (!action && get) {
-        const messages = sessionMessages(db, session.id, { replies: params.get("replies") === "1" });
+        const messages = sessionMessages(db, session.id, { replies: params.get("replies") === "1", maxChars: MESSAGE_PREVIEW_CHARS });
         const files = sessionFiles(db, session.id).map(toFileDTO);
         return json({ session: toSessionDTO(session), messages, files });
       }
@@ -135,6 +138,13 @@ export function createApi(opts: ApiOptions) {
         await runInTerminal(command);
         return json({ ok: true });
       }
+    }
+
+    // The whole text of a message the session detail cut short, as plain text in its own tab.
+    if (resource === "messages" && id && get) {
+      const text = getMessage(db, Number(id));
+      if (text === null) return fail(new LembraError("routeNotFound"), locale, 404);
+      return new Response(text, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
     }
 
     if (resource === "files" && !id && get) {
@@ -158,7 +168,10 @@ export function createApi(opts: ApiOptions) {
       }
     }
 
-    if (resource === "facets" && get) return json(listFacets(db, { repo: params.get("repo") || undefined }));
+    if (resource === "facets" && get) {
+      const { repos, branches } = listFacets(db, { repo: params.get("repo") || undefined });
+      return json({ repos: repos.map((facet) => ({ ...facet, label: repoName(facet.value) })), branches });
+    }
 
     if (resource === "stats" && get) {
       const stats = collectStats(db, paths);

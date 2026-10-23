@@ -1,37 +1,13 @@
 import { h, replace } from "../../lib/dom";
 import { t } from "../../lib/i18n";
-import { CLEARED_FILTERS, hasActiveFilters, VIEW_FILTERS, type State, type View } from "../../lib/state";
+import { CLEARED_FILTERS, hasActiveFilters, VIEWS, type State } from "../../lib/state";
 import type { FacetsResponse } from "../../../types";
 import { Button } from "../button/button";
 
 /**
- * Filters offered by the current view (see VIEW_FILTERS): repo, branch, period and a toggle.
+ * Filters offered by the current view (see VIEWS): repo, branch, period and a toggle.
  * Example: FilterBar({ onChange: (patch) => store.set(patch) }).update(state, facets)
  */
-type PeriodKey = keyof typeof t.filters.periods;
-
-// "" is "no filter": everything for sessions and files, the default 14 days for pending work.
-export const PERIODS: Record<View, { value: string; label: PeriodKey }[]> = {
-  sessions: [
-    { value: "", label: "all" },
-    { value: "1d", label: "1d" },
-    { value: "7d", label: "7d" },
-    { value: "30d", label: "30d" },
-    { value: "90d", label: "90d" },
-  ],
-  files: [
-    { value: "", label: "all" },
-    { value: "1d", label: "1d" },
-    { value: "7d", label: "7d" },
-    { value: "30d", label: "30d" },
-  ],
-  pending: [
-    { value: "", label: "14d" },
-    { value: "30d", label: "30d" },
-    { value: "90d", label: "90d" },
-  ],
-};
-
 type Patch = Partial<Pick<State, "repo" | "branch" | "since" | "prompts" | "missing">>;
 type Option = { value: string; label: string };
 
@@ -61,8 +37,8 @@ export function FilterBar(props: { onChange(patch: Patch): void }) {
 
   function update(state: State, facets: FacetsResponse) {
     const f = t.filters;
-    const offers = new Set(VIEW_FILTERS[state.view]);
-    const repos: Option[] = [{ value: "", label: f.allRepos }, ...facets.repos.map((facet) => ({ value: facet.value, label: facet.value.split("/").pop()! }))];
+    const offers = new Set(VIEWS[state.view].filters);
+    const repos: Option[] = [{ value: "", label: f.allRepos }, ...facets.repos.map(({ value, label }) => ({ value, label }))];
     const branches: Option[] = [{ value: "", label: f.allBranches }, ...facets.branches.map((facet) => ({ value: facet.value, label: facet.value }))];
     replace(
       el,
@@ -71,7 +47,7 @@ export function FilterBar(props: { onChange(patch: Patch): void }) {
       h(
         "div",
         { class: "chips", role: "group", "aria-label": f.period },
-        PERIODS[state.view].map((period) =>
+        VIEWS[state.view].periods.map((period) =>
           h(
             "button",
             { class: "chip", type: "button", "aria-pressed": String(state.since === period.value), onclick: () => props.onChange({ since: period.value }) },

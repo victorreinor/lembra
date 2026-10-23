@@ -1,5 +1,5 @@
 import type { FacetsResponse, SearchResponse, SessionDetailResponse } from "../types";
-import { Button, whileBusy } from "./components/button/button";
+import { Button } from "./components/button/button";
 import { DayDivider } from "./components/day-divider/day-divider";
 import { EmptyState } from "./components/empty-state/empty-state";
 import { FileRow } from "./components/file-row/file-row";
@@ -18,7 +18,7 @@ import { h, replace, type Child } from "./lib/dom";
 import { dayKey, dayStamp } from "./lib/format";
 import { initLocale, switchLocale, t, withKeys } from "./lib/i18n";
 import { bindShortcuts } from "./lib/keyboard";
-import { CLEARED_FILTERS, createStore, fromSearch, hasActiveFilters, type State, type View } from "./lib/state";
+import { CLEARED_FILTERS, createStore, fromSearch, hasActiveFilters, VIEWS, type State, type View } from "./lib/state";
 
 // The language set with `lembra lang` is the default when the visitor has not picked one here.
 initLocale((await api.health().catch(() => null))?.lang);
@@ -36,6 +36,7 @@ let detail: SessionDetailResponse | null = null;
 let showReplies = false;
 let firstLoad = true;
 let listRequest: AbortController | null = null;
+let detailRequest: AbortController | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ── theme ───────────────────────────────────────────────────────────────
@@ -218,6 +219,8 @@ function renderDetailEmpty() {
 }
 
 async function loadDetail(id: string | null) {
+  // Moving through the list with j/k abandons the detail of each card passed over.
+  detailRequest?.abort();
   if (!id) {
     detail = null;
     main.removeAttribute("data-detail-open");
@@ -225,8 +228,9 @@ async function loadDetail(id: string | null) {
     return;
   }
   main.dataset.detailOpen = "";
+  const request = (detailRequest = new AbortController());
   try {
-    const data = await api.session(id, showReplies);
+    const data = await api.session(id, showReplies, request.signal);
     if (store.get().session !== id) return;
     detail = data;
     replace(
@@ -236,19 +240,21 @@ async function loadDetail(id: string | null) {
         showReplies,
         canOpenTerminal,
         rawUrl: api.rawUrl,
+        messageUrl: api.messageUrl,
         onRestore: (fileId) => api.restore(fileId),
         onBack: () => store.set({ session: null }, "push"),
         onToggleReplies: () => {
           showReplies = !showReplies;
           void loadDetail(id);
         },
-        onOpenTerminal: (button) => void openTerminal(button),
+        onOpenTerminal: openTerminal,
         onCopyCommand: () => void copyCommand(),
-        onCopyHandoff: (button) => void copyHandoff(button),
+        onCopyHandoff: copyHandoff,
       }),
     );
     detailPane.scrollTop = 0;
   } catch (error) {
+    if ((error as Error).name === "AbortError") return;
     replace(detailPane, EmptyState({ icon: "alert", title: t.detail.unavailable, text: (error as Error).message }));
   }
 }
@@ -267,27 +273,20 @@ async function copyCommand() {
   await copy(detail.session.resumeCommand, t.toasts.commandCopied);
 }
 
-async function copyHandoff(button?: HTMLElement) {
+async function copyHandoff() {
   const id = detail?.session.id;
-  if (!id) return;
-  const run = async () => copy((await api.handoff(id)).text, t.toasts.handoffCopied);
-  if (button) await whileBusy(button, run);
-  else await run();
+  if (id) await copy((await api.handoff(id)).text, t.toasts.handoffCopied);
 }
 
-async function openTerminal(button?: HTMLElement) {
+async function openTerminal() {
   const id = detail?.session.id;
   if (!id || !detail?.session.resumeCommand) return;
-  const run = async () => {
-    try {
-      await api.openTerminal(id);
-      toast(t.toasts.openingTerminal, "success");
-    } catch (error) {
-      toast((error as Error).message, "danger");
-    }
-  };
-  if (button) await whileBusy(button, run);
-  else await run();
+  try {
+    await api.openTerminal(id);
+    toast(t.toasts.openingTerminal, "success");
+  } catch (error) {
+    toast((error as Error).message, "danger");
+  }
 }
 
 // ── state & shortcuts ───────────────────────────────────────────────────
@@ -299,7 +298,7 @@ function setView(view: View) {
 store.subscribe((state, previous) => {
   searchBar.setValue(state.q);
   searchBar.setPlaceholder(t.placeholders[state.view]);
-  searchBar.input.disabled = state.view === "pending";
+  searchBar.input.disabled = !VIEWS[state.view].searchable;
   tabs.setActive(state.view);
   main.dataset.view = state.view;
   document.title = state.q ? `${state.q} · lembra` : "lembra";
@@ -344,7 +343,6 @@ bindShortcuts(
       if (store.get().session) store.set({ session: null }, "push");
     },
   },
-  ["Escape"],
 );
 
 // ── vital signs ─────────────────────────────────────────────────────────
@@ -363,4 +361,10 @@ filters.update(store.get(), facets);
 void loadList();
 void loadDetail(store.get().session);
 void refreshMeta();
-setInterval(() => void refreshMeta(), META_EVERY_MS);
+// A hidden tab skips the poll and catches up as soon as it is shown again.
+setInterval(() => {
+  if (!document.hidden) void refreshMeta();
+}, META_EVERY_MS);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) void refreshMeta();
+});

@@ -6,7 +6,7 @@ import type {
   SessionDetailResponse,
   StatsResponse,
 } from "../../types";
-import { locale } from "./i18n";
+import { locale, t } from "./i18n";
 
 // Typed client for src/web/api.ts. Every call sends x-lembra (required for writes) and the page's language,
 // so server-made text (errors, handoff, pending reasons) matches the page.
@@ -16,7 +16,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body) headers["content-type"] = "application/json";
   const res = await fetch(path, { ...init, headers });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error ?? `Erro ${res.status}`);
+  if (!res.ok) throw new Error((body as { error?: string }).error ?? t.load.httpError(res.status));
   return body as T;
 }
 
@@ -36,14 +36,16 @@ export interface ListParams {
 export const api = {
   health: () => request<{ app: string; version: string; lang: string | null }>("/api/health"),
   search: (params: ListParams, signal?: AbortSignal) => request<SearchResponse>(`/api/search?${query({ ...params })}`, { signal }),
-  session: (id: string, replies = false) => request<SessionDetailResponse>(`/api/sessions/${encodeURIComponent(id)}?${query({ replies })}`),
+  session: (id: string, replies = false, signal?: AbortSignal) =>
+    request<SessionDetailResponse>(`/api/sessions/${encodeURIComponent(id)}?${query({ replies })}`, { signal }),
   handoff: (id: string) => request<{ text: string }>(`/api/sessions/${encodeURIComponent(id)}/handoff`),
   openTerminal: (id: string) => request<{ ok: true }>(`/api/sessions/${encodeURIComponent(id)}/terminal`, { method: "POST" }),
   files: (params: { term?: string; repo?: string; since?: string; missing?: boolean }, signal?: AbortSignal) =>
     request<FilesResponse>(`/api/files?${query({ ...params, limit: 200 })}`, { signal }),
-  restore: (id: number, body: { to?: string; force?: boolean } = {}) =>
-    request<{ dest: string; displayDest: string }>(`/api/files/${id}/restore`, { method: "POST", body: JSON.stringify(body) }),
+  // Back to its original path; the API refuses to overwrite an existing file.
+  restore: (id: number) => request<{ dest: string; displayDest: string }>(`/api/files/${id}/restore`, { method: "POST" }),
   rawUrl: (id: number, download = false) => `/api/files/${id}/raw${download ? "?download=1" : ""}`,
+  messageUrl: (id: number) => `/api/messages/${id}`,
   facets: () => request<FacetsResponse>("/api/facets"),
   stats: () => request<StatsResponse>("/api/stats"),
   pending: (since: string, signal?: AbortSignal) => request<PendingResponse>(`/api/pending?${query({ since })}`, { signal }),

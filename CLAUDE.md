@@ -32,18 +32,19 @@ src/core/            regras e dados; sem console, sem process.exit, sem texto fi
   indexer.ts         varre ~/.claude, leitura incremental em blocos, grava sessões/mensagens/arquivos
   archive.ts         cópia zstd (streaming) dos transcripts; restauração para o resume
   db.ts              schema SQLite + FTS5 + colunas adicionadas depois
-  query.ts           filtros, datas, montagem da query FTS
+  query.ts           parseFilters, datas, montagem da query FTS
   search.ts          busca ranqueada por sessão
   sessions.ts        listar, achar e descrever sessões; facetas
-  files.ts           consultar e restaurar arquivos do cofre
+  files.ts           consultar e restaurar arquivos do cofre; fileStatus
   handoff.ts         resumo de passagem em Markdown (por idioma)
   summarize.ts       resumos com claude -p (Runner injetável)
   pending.ts         branches com trabalho não entregue (GitProbe injetável)
+  exec.ts            exec() para rodar git, gh, claude, launchctl…; forEachLimited
   secrets.ts         mascara credenciais no texto indexado (REDACTION_VERSION)
   errors.ts          LembraError(código, parâmetros), renderizado por idioma
   text.ts            textFormat(locale): datas, tamanhos, números
   config.ts, stats.ts, repo.ts, blobs.ts, services.ts, paths.ts
-src/i18n/            catálogos (errors, core, cli, mcp, ui) com en e pt-BR lado a lado; locale.ts, system.ts
+src/i18n/            catálogos (errors, core, cli, mcp, ui) com en e pt-BR lado a lado; locale.ts, system.ts, format.ts (plural, números, bytes)
 src/cli/             main.ts (argumentos, idioma, despacho), commands.ts (um handler por comando), format.ts (cores)
 src/web/             api.ts (HTTP), server.ts (Bun.serve + página), types.ts (DTOs)
   ui/                app.ts, lib/ (dom, api, state, i18n, format, keyboard, icons), components/<nome>/, styles/
@@ -63,7 +64,8 @@ test/                unit/, integration/, web/ (happy-dom), support/fixture.ts
 - Mudou o que o parser extrai? Incremente `PARSER_VERSION` e documente em `docs/claude-code-data.md`.
 - Mudou as regras de segredos? Incremente `REDACTION_VERSION` em `src/core/secrets.ts` e acrescente casos positivos e negativos em `test/unit/secrets.test.ts`. Texto indexado nunca entra sem passar por `redact`.
 - Schema só aditivo: `CREATE … IF NOT EXISTS` ou `ADDED_COLUMNS` em `db.ts`. O banco é descartável (`rm -rf ~/.lembra && lembra index`).
-- Efeitos fora do cofre (git, gh, claude, launchctl, osascript) passam por interfaces injetáveis (`Services`, `InstallEnv.exec`). Os testes nunca chamam essas ferramentas de verdade.
+- Efeitos fora do cofre (git, gh, claude, launchctl, osascript) rodam por `exec()` de `src/core/exec.ts` e passam por interfaces injetáveis (`Services`, `InstallEnv.exec`). Os testes nunca chamam essas ferramentas de verdade.
+- Antes de escrever um helper, procure: filtros (`parseFilters`), estado de arquivo (`fileStatus`), comando de resume (`resumeCommand`, nulo para sessões só de prompts), formatação (`src/i18n/format.ts`).
 - Toda feature precisa de teste unitário da parte pura e de integração com `test/support/fixture.ts`. Componentes novos precisam de teste em `test/web`.
 - **O repositório é público.** Nada de transcripts reais, nomes de clientes, caminhos pessoais ou segredos em fixtures, docs, exemplos ou screenshots (use `bun run demo`).
 - Antes de concluir: `bun run typecheck && bun test`.

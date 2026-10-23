@@ -82,9 +82,7 @@
   --leading-snug: 1.38;
   --leading-normal: 1.55;
   --tracking-label: 0.12em;
-  --weight-regular: 400;
   --weight-medium: 500;
-  --weight-semibold: 600;
 
   /* space: 4 px scale */
   --space-1: 4px;
@@ -94,7 +92,6 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
-  --space-10: 40px;
   --space-12: 48px;
 
   /* layout */

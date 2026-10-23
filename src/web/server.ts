@@ -14,7 +14,7 @@ const ICONS = new Set(["icon-192.png", "icon-512.png", "icon.svg"]);
 const FRESH_FOR_MS = 5_000;
 const BACKGROUND_EVERY_MS = 60_000;
 
-export const MANIFEST = {
+const MANIFEST = {
   name: "lembra",
   short_name: "lembra",
   description: "Permanent, searchable history for Claude Code",

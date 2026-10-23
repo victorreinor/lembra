@@ -3,7 +3,7 @@ import { bytes, clock, dayStamp } from "../../lib/format";
 import { t } from "../../lib/i18n";
 import type { FileDTO } from "../../../types";
 import { Badge, type BadgeTone } from "../badge/badge";
-import { Button, whileBusy } from "../button/button";
+import { Button } from "../button/button";
 import { toast } from "../toast/toast";
 
 const STATUS_TONE: Record<FileDTO["status"], BadgeTone> = { disk: "neutral", missing: "danger", image: "neutral", partial: "warning" };
@@ -30,18 +30,16 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
       label: t.file.restore,
       icon: "restore",
       size: "sm",
-      onClick: (event) => {
+      onClick: async (event) => {
         const button = event.currentTarget as HTMLElement;
-        void whileBusy(button, async () => {
-          try {
-            const { displayDest } = await onRestore(file.id);
-            replace(status, Badge(t.file.restored, "success"));
-            button.remove();
-            toast(t.file.restoredTo(displayDest), "success");
-          } catch (error) {
-            toast((error as Error).message, "danger");
-          }
-        });
+        try {
+          const { displayDest } = await onRestore(file.id);
+          replace(status, Badge(t.file.restored, "success"));
+          button.remove();
+          toast(t.file.restoredTo(displayDest), "success");
+        } catch (error) {
+          toast((error as Error).message, "danger");
+        }
       },
     });
 
@@ -71,8 +69,8 @@ export function FileRow({ file, showRepo, rawUrl, onRestore }: FileRowProps): HT
     h(
       "span",
       { class: "file-row__actions" },
-      hasContent && Button({ label: t.file.view, icon: "eye", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, false), newTab: true }),
-      hasContent && Button({ label: t.file.download, icon: "download", size: "sm", variant: "ghost", iconOnly: true, href: rawUrl(file.id, true), download: true }),
+      hasContent && Button({ label: t.file.view, icon: "eye", iconOnly: true, href: rawUrl(file.id, false), newTab: true }),
+      hasContent && Button({ label: t.file.download, icon: "download", iconOnly: true, href: rawUrl(file.id, true), download: true }),
       restore,
     ),
   );

@@ -124,7 +124,8 @@ export const TOOLS: Tool[] = [
       if (command) parts.push(t.resume(command));
       if (session.digest) parts.push(`\n${t.summary}\n${session.digest}`);
       parts.push(`\n${t.conversation}`);
-      for (const message of sessionMessages(db, session.id, { replies: args.include_replies === true })) {
+      const maxChars = typeof args.max_chars === "number" ? args.max_chars : 20_000;
+      for (const message of sessionMessages(db, session.id, { replies: args.include_replies === true, maxChars })) {
         parts.push(`[${message.role} · ${format.when(message.ts)}] ${message.text}`);
       }
       const files = sessionFiles(db, session.id).filter((file) => file.kind !== "image");
@@ -132,7 +133,7 @@ export const TOOLS: Tool[] = [
         parts.push(`\n${t.files}`);
         for (const file of files) parts.push(`#${file.id} ${file.kind} ${shortPath(file.path)}${isMissing(file) ? t.deleted : ""}`);
       }
-      return clip(parts.join("\n"), typeof args.max_chars === "number" ? args.max_chars : 20_000);
+      return clip(parts.join("\n"), maxChars);
     },
   },
   {

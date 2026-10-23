@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
-import type { FileDTO, ResultDTO, SessionDetailResponse, SessionDTO } from "../../src/web/types";
+import type { FileDTO, ResultDTO, SessionDetailResponse, SessionDTO, SessionMessage } from "../../src/web/types";
 
 // A DOM only for this file; component modules touch `document` only when called.
 beforeAll(async () => {
@@ -17,6 +17,9 @@ const { FilterBar } = await import("../../src/web/ui/components/filter-bar/filte
 const { PromptList } = await import("../../src/web/ui/components/prompt-list/prompt-list");
 const { EmptyState } = await import("../../src/web/ui/components/empty-state/empty-state");
 const { DEFAULT_STATE } = await import("../../src/web/ui/lib/state");
+const { Button } = await import("../../src/web/ui/components/button/button");
+
+const message = (role: SessionMessage["role"], text: string): SessionMessage => ({ id: 1, role, ts: "2026-10-01T10:00:00.000Z", text, truncated: false });
 
 const session: SessionDTO = {
   id: "11111111-2222-3333-4444-555555555555",
@@ -66,6 +69,33 @@ describe("dom helpers", () => {
   });
 });
 
+describe("Button", () => {
+  test("stays busy and ignores clicks while an async action runs", async () => {
+    let finish!: () => void;
+    let runs = 0;
+    const button = Button({
+      label: "Copiar",
+      onClick: () => {
+        runs++;
+        return new Promise<void>((resolve) => (finish = resolve));
+      },
+    });
+    button.click();
+    button.click();
+    expect(runs).toBe(1);
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    finish();
+    await Bun.sleep(0);
+    expect(button.hasAttribute("aria-busy")).toBe(false);
+  });
+
+  test("icon-only buttons are small ghost buttons labelled by their title", () => {
+    const button = Button({ label: "Ajuda", icon: "keyboard", iconOnly: true });
+    expect(button.dataset).toMatchObject({ variant: "ghost", size: "sm" });
+    expect(button.title).toBe("Ajuda");
+  });
+});
+
 describe("SessionCard", () => {
   const result: ResultDTO = { session, snippets: [{ role: "prompt", ts: session.startedAt!, text: "corrigir o \x01faturamento\x02" }] };
 
@@ -111,19 +141,20 @@ describe("FileRow", () => {
 describe("SessionDetail", () => {
   const data: SessionDetailResponse = {
     session,
-    messages: [{ role: "prompt", ts: session.startedAt!, text: "corrige a fatura" }],
+    messages: [message("prompt", "corrige a fatura")],
     files: [file()],
   };
   const callbacks = {
     showReplies: false,
     canOpenTerminal: true,
     rawUrl: () => "",
+    messageUrl: () => "",
     onRestore: async () => ({ displayDest: "" }),
     onBack: () => {},
     onToggleReplies: () => {},
-    onOpenTerminal: () => {},
+    onOpenTerminal: async () => {},
     onCopyCommand: () => {},
-    onCopyHandoff: () => {},
+    onCopyHandoff: async () => {},
   };
 
   test("offers resume actions for sessions with a transcript", () => {
@@ -156,7 +187,7 @@ describe("SessionDetail", () => {
 });
 
 describe("FilterBar", () => {
-  const facets = { repos: [{ value: "acme/billing-api", sessions: 3 }], branches: [{ value: "fix/fatura", sessions: 1 }] };
+  const facets = { repos: [{ value: "acme/billing-api", sessions: 3, label: "billing-api" }], branches: [{ value: "fix/fatura", sessions: 1 }] };
 
   test("shows only what the view offers", () => {
     const bar = FilterBar({ onChange: () => {} });
@@ -181,17 +212,19 @@ describe("FilterBar", () => {
 describe("PromptList and EmptyState", () => {
   test("numbers prompts and collapses long ones behind a toggle", () => {
     const list = PromptList({
-      messages: [
-        { role: "prompt", ts: session.startedAt!, text: "curto" },
-        { role: "reply", ts: session.startedAt!, text: "resposta" },
-        { role: "prompt", ts: session.startedAt!, text: "x".repeat(900) },
-      ],
+      messages: [message("prompt", "curto"), message("reply", "resposta"), message("prompt", "x".repeat(900))],
+      messageUrl: (id) => `/api/messages/${id}`,
     });
     expect([...list.querySelectorAll(".prompt-list__gutter")].map((g) => g.textContent)).toEqual(["01", "↳", "02"]);
     const more = list.querySelector<HTMLButtonElement>(".prompt-list__more")!;
     more.click();
     expect(more.textContent).toBe("recolher");
     expect(list.querySelector("[data-collapsed]")).toBeNull();
+  });
+
+  test("links a message the server cut short to its whole text", () => {
+    const list = PromptList({ messages: [{ ...message("prompt", "log longo"), id: 42, truncated: true }], messageUrl: (id) => `/api/messages/${id}` });
+    expect(list.querySelector<HTMLAnchorElement>(".prompt-list__whole")!.getAttribute("href")).toBe("/api/messages/42");
   });
 
   test("empty states explain and suggest the next step", () => {

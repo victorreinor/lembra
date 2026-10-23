@@ -145,7 +145,7 @@ function showCommand(ctx: Context) {
 
   io.out(`\n${bold(t.show.prompts)}`);
   let n = 0;
-  for (const message of sessionMessages(db, session.id)) {
+  for (const message of sessionMessages(db, session.id, { maxChars: options.full ? undefined : 1000 })) {
     const mark = message.role === "summary" ? yellow(`  ${t.show.compact}`) : `${String(++n).padStart(3)}.`;
     io.out(`${mark} ${dim(fmt.when(message.ts))}  ${options.full ? message.text : oneLine(message.text, 160)}`);
   }

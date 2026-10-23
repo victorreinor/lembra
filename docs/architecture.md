@@ -39,8 +39,8 @@ flowchart TB
 2. A tabela `sources` guarda `offset` (o último byte lido) e `size`. Arquivo com o mesmo tamanho é pulado. Se mudou, só os bytes novos são lidos, em blocos de 8 MB (`completeLines`). Uma linha maior que o bloco dobra o bloco; uma linha incompleta no fim fica para a próxima execução. O `size` só é gravado ao terminar, para que uma execução interrompida retome do offset.
 3. `shouldParse` descarta registros de controle (`api-request-blob`, `permission-mode`…) pelo prefixo, sem `JSON.parse`. As demais linhas vão para `parseRecord`.
 4. Tudo é gravado com `INSERT OR IGNORE` e chaves estáveis (`uid`), o que torna o reprocessamento idempotente. Quando `PARSER_VERSION` muda, `rereadIfParserChanged` zera os offsets e tudo é relido sem duplicar.
-5. Ao fim de cada bloco, a sessão é atualizada: pasta, repo, branch, títulos, custo, primeiro e último prompt, contagem e intervalo de datas.
-6. `importHistory` cria sessões `source = 'history'` para ids do `history.jsonl` sem transcript, ignorando a última hora (o transcript pode ainda não existir).
+5. Ao fim de cada bloco, a sessão é atualizada: pasta, repo, branch, títulos, custo, primeiro e último prompt, contagem e intervalo de datas. O título só é regravado quando muda, porque cada gravação refaz a linha do FTS.
+6. `importHistory` cria sessões `source = 'history'` para ids do `history.jsonl` sem transcript. O arquivo só cresce, então a leitura também é incremental: ela para na primeira entrada da última hora (o transcript pode ainda não existir) e a próxima execução retoma dali.
 7. Sessões cuja pasta fica dentro de `~/.lembra`, como os resumos gerados pelo próprio `lembra`, são ignoradas.
 8. Com `archive: true` (no `lembra index`, no hook e na primeira execução), cada arquivo alterado é copiado inteiro para `~/.lembra/raw/` via zstd em streaming: grava num `.partial` e renomeia no fim.
 
@@ -68,6 +68,7 @@ Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`).
 - O tokenizer é `unicode61 remove_diacritics 2`: "relatorio" encontra "Relatório".
 - O score é o `bm25` com pesos por papel: prompt ×2; resumo do `/compact` e resumo do Haiku ×1,5; resposta ×1. Títulos (`sessions_fts`) entram com peso ×3.
 - Os resultados vêm agrupados por sessão, com até dois trechos. Os termos encontrados chegam marcados com `\x01…\x02`, e cada interface decide como destacar.
+- A busca roda em duas etapas: primeiro ranqueia sem `snippet()`, depois gera trechos só para as mensagens que vão aparecer. `snippet()` é a parte cara, e uma palavra comum casa com milhares de mensagens.
 
 ## Segredos (`secrets.ts`)
 
@@ -82,12 +83,14 @@ Os blobs são endereçados por SHA-256 e comprimidos com zstd (`blobs.ts`).
 
 - **`handoff.ts`** monta um Markdown com pedido inicial, último resumo do `/compact`, últimos pedidos, última resposta e arquivos (com `lembra cat <id>`). É usado pela CLI, pela página e pela ferramenta MCP `handoff`.
 - **`summarize.ts`** escolhe sessões terminadas há mais de 30 minutos, com pelo menos 2 prompts e sem resumo (ou que mudaram depois dele). O prompt pede o resumo no idioma do usuário, e o resultado vai para `sessions.digest` e para `messages` (papel `digest`), onde fica pesquisável. O `Runner` padrão chama `claude -p --model haiku --no-session-persistence` a partir de `~/.lembra/summaries`.
-- **`pending.ts`** agrupa sessões recentes por raiz git e branch (ignorando `main`, `master`, `develop`, a branch padrão do remote e `HEAD`) e consulta um `GitProbe`: se a branch existe, se tem upstream, quantos commits estão à frente, se há alterações quando ela está checada, e o estado do PR via `gh`. PR mergeado ou aberto conta como entregue.
+- **`pending.ts`** agrupa sessões recentes (14 dias por padrão, `DEFAULT_PENDING_SINCE`) por raiz git e branch (ignorando `main`, `master`, `develop`, a branch padrão do remote e `HEAD`) e consulta um `GitProbe`: se a branch existe, se tem upstream, quantos commits estão à frente e se há alterações quando ela está checada. O estado dos PRs vem de um `gh pr list` por repositório; só branches mais antigas que os 200 PRs mais recentes ganham uma consulta própria. PR mergeado ou aberto conta como entregue.
+- **`exec.ts`** é o único jeito de rodar outro programa (git, gh, claude, launchctl, pbcopy, osascript), e `forEachLimited` limita quantos rodam ao mesmo tempo.
 
 ## Página (`src/web`)
 
 - **`server.ts`** sobe o `Bun.serve` só em `127.0.0.1`. Ele serve a página (HTML import do Bun, que empacota TS, CSS e fontes), o `manifest.webmanifest`, os ícones e a API. A indexação roda em voo único: requisições simultâneas compartilham uma passada.
-- **`api.ts`** expõe `search`, `sessions/:id` (com `handoff` e `terminal`), `files` (com `raw` e `restore`), `facets`, `stats`, `pending`, `index` e `health`.
+- **`api.ts`** expõe `search`, `sessions/:id` (com `handoff` e `terminal`), `messages/:id`, `files` (com `raw` e `restore`), `facets`, `stats`, `pending`, `index` e `health`.
+- **Mensagens longas:** o detalhe da sessão manda no máximo 4.000 caracteres de cada mensagem, cortados no próprio SQL (`sessionMessages` com `maxChars`). A mensagem cortada leva `truncated: true`, e a página oferece o texto inteiro em `messages/:id`, como texto puro numa aba nova. Handoff, resumos, MCP e CLI usam o mesmo corte, cada um com seu limite.
 - **Segurança:**
   - Recusa qualquer `Host` que não seja `localhost:porta` ou `127.0.0.1:porta`, o que barra DNS rebinding.
   - Escritas exigem o cabeçalho `x-lembra: 1` e origem própria. Como a API nunca libera CORS, outro site não consegue enviar esse cabeçalho.

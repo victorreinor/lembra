@@ -1,16 +1,17 @@
 import { h } from "../../lib/dom";
 import { clock } from "../../lib/format";
 import { t } from "../../lib/i18n";
-import type { MessageDTO } from "../../../types";
+import type { SessionMessage } from "../../../types";
 
 const LONG_CHARS = 700;
 const LONG_LINES = 10;
 
 /**
  * The conversation of a session: numbered prompts, /compact summaries (collapsed) and, optionally, replies.
- * Example: PromptList({ messages })
+ * Texts the server cut short link to the whole message.
+ * Example: PromptList({ messages, messageUrl: (id) => `/api/messages/${id}` })
  */
-export function PromptList({ messages }: { messages: MessageDTO[] }): HTMLElement {
+export function PromptList({ messages, messageUrl }: { messages: SessionMessage[]; messageUrl(id: number): string }): HTMLElement {
   let number = 0;
   return h(
     "ol",
@@ -25,6 +26,7 @@ export function PromptList({ messages }: { messages: MessageDTO[] }): HTMLElemen
             { class: "prompt-list__summary" },
             h("summary", null, h("span", { class: "label" }, t.conversation.compact), h("time", { datetime: message.ts }, clock(message.ts))),
             h("div", { class: "prompt-list__text" }, message.text),
+            message.truncated && WholeMessage(messageUrl(message.id)),
           ),
         );
       }
@@ -38,10 +40,15 @@ export function PromptList({ messages }: { messages: MessageDTO[] }): HTMLElemen
           { class: "prompt-list__content" },
           h("span", { class: "prompt-list__meta" }, message.role === "reply" ? t.conversation.replyPrefix : "", h("time", { datetime: message.ts }, clock(message.ts))),
           Collapsible(message.text),
+          message.truncated && WholeMessage(messageUrl(message.id)),
         ),
       );
     }),
   );
+}
+
+function WholeMessage(href: string): HTMLElement {
+  return h("a", { class: "prompt-list__whole", href, target: "_blank", rel: "noopener" }, t.conversation.whole);
 }
 
 function Collapsible(text: string): HTMLElement {

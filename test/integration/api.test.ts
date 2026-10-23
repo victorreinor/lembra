@@ -82,7 +82,7 @@ describe("read endpoints", () => {
     expect((await get(`/api/sessions/${SESSION}/handoff`)).text).toStartWith("# Handoff: billing-fix");
     const files = await get("/api/files?missing=1");
     expect(files.files.map((file: FileDTO) => file.displayPath.split("/").pop()).sort()).toEqual(["dump.sql", "fix.sql"]);
-    expect((await get("/api/facets")).repos).toEqual([{ value: "billing-app", sessions: 1 }]);
+    expect((await get("/api/facets")).repos).toEqual([{ value: "billing-app", sessions: 1, label: "billing-app" }]);
     expect(await get("/api/stats")).toMatchObject({ sessions: 1, missing: 2, indexedAt: null });
     expect((await get("/api/pending?since=2026-01-01")).items[0]).toMatchObject({ branch: "fix/billing", reasons: ["branch nunca enviada", "sem PR"] });
   });
@@ -132,4 +132,17 @@ test("answers in the language the page asks for", async () => {
   const res = await send("/api/sessions/zzz", { headers: { "accept-language": "en" } });
   expect((await res.json()).error).toBe('No session with id or name "zzz".');
   expect((await get("/api/health")).lang).toBe("pt-BR");
+});
+
+describe("long messages", () => {
+  test("the session detail cuts them and the whole text has its own address", async () => {
+    const long = `${"linha de log\n".repeat(400)}fim do log`;
+    db.query("INSERT INTO messages (uid, session_id, ts, role, text) VALUES ('long-1', ?, '2026-10-01T12:00:00.000Z', 'prompt', ?)").run(SESSION, long);
+    const message = (await get(`/api/sessions/${SESSION}`)).messages.find((m: { truncated: boolean }) => m.truncated);
+    expect(message.text).toHaveLength(4000);
+    const whole = await send(`/api/messages/${message.id}`);
+    expect(whole.headers.get("content-type")).toStartWith("text/plain");
+    expect(await whole.text()).toBe(long);
+    expect((await send("/api/messages/999999")).status).toBe(404);
+  });
 });

@@ -18,8 +18,8 @@ export function StatusBar(props: { onToggleTheme(): void; onSwitchLanguage(): vo
       "span",
       { class: "status-bar__actions" },
       h("button", { class: "status-bar__lang", type: "button", title: t.status.language, onclick: () => props.onSwitchLanguage() }, locale === "pt-BR" ? "PT" : "EN"),
-      Button({ label: t.status.theme, icon: "moon", variant: "ghost", size: "sm", iconOnly: true, onClick: () => props.onToggleTheme() }),
-      Button({ label: t.status.help, icon: "keyboard", variant: "ghost", size: "sm", iconOnly: true, onClick: () => props.onHelp() }),
+      Button({ label: t.status.theme, icon: "moon", iconOnly: true, onClick: () => props.onToggleTheme() }),
+      Button({ label: t.status.help, icon: "keyboard", iconOnly: true, onClick: () => props.onHelp() }),
     ),
   );
 

@@ -61,12 +61,12 @@ Cada componente vive em `src/web/ui/components/<nome>/` com `<nome>.ts` (uma fun
 |---|---|
 | `search-bar` | Campo principal, `/` para focar, `↓` desce para os resultados |
 | `tabs` | Sessões · Arquivos · Pendências |
-| `filter-bar` | Repo, branch, período e um interruptor, conforme a visão (`VIEW_FILTERS`) |
+| `filter-bar` | Repo, branch, período e um interruptor, conforme a visão (`VIEWS`) |
 | `session-card` | Ficha da sessão: aba do repo, título, metadados, selos e trechos |
 | `snippet` | Trecho com `<mark>` nos termos e quem falou |
 | `day-divider` | Carimbo de data entre grupos de sessões recentes |
 | `session-detail` | Cabeçalho, ações, comando, resumo, conversa e arquivos |
-| `prompt-list` | Conversa numerada; textos longos recolhidos; resumos do `/compact` em `<details>` |
+| `prompt-list` | Conversa numerada; textos longos recolhidos; resumos do `/compact` em `<details>`; link para a mensagem inteira quando o servidor a cortou |
 | `file-row` | Caminho (a pasta encolhe, o nome nunca), estado e ações ver, baixar e restaurar |
 | `pending-list` | Branches com trabalho não entregue e link para a última sessão |
 | `status-bar` | Números do cofre, seletor de idioma, tema e ajuda |
@@ -74,6 +74,10 @@ Cada componente vive em `src/web/ui/components/<nome>/` com `<nome>.ts` (uma fun
 | `button`, `badge`, `kbd`, `toast`, `empty-state`, `skeleton` | Peças básicas reutilizadas pelos demais |
 
 O texto chega por `t` (`lib/i18n.ts`), que é lido na hora de renderizar. A troca de idioma recarrega a página.
+
+Tudo o que muda de uma visão para outra (filtros, períodos, se a busca vale) fica em `VIEWS`, em `lib/state.ts`. Uma visão nova começa ali, não em condições espalhadas pelos componentes.
+
+Um `Button` com `onClick` assíncrono fica `aria-busy` até a ação terminar e ignora cliques repetidos nesse meio-tempo; quem usa não precisa controlar isso.
 
 ## Telas estreitas
 

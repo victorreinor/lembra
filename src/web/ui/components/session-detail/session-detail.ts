@@ -13,14 +13,15 @@ import { PromptList } from "../prompt-list/prompt-list";
  * Example: SessionDetail({ data, showReplies: false, canOpenTerminal: true, …callbacks })
  */
 export interface SessionDetailProps extends Pick<FileRowProps, "rawUrl" | "onRestore"> {
+  messageUrl(id: number): string;
   data: SessionDetailResponse;
   showReplies: boolean;
   canOpenTerminal: boolean;
   onBack(): void;
   onToggleReplies(): void;
-  onOpenTerminal(button: HTMLElement): void;
+  onOpenTerminal(): Promise<void>;
   onCopyCommand(): void;
-  onCopyHandoff(button: HTMLElement): void;
+  onCopyHandoff(): Promise<void>;
 }
 
 export function SessionDetail(props: SessionDetailProps): HTMLElement {
@@ -34,12 +35,12 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
   ].filter(Boolean);
 
   const copyHandoff = (primary: boolean) =>
-    Button({ label: t.detail.copyHandoff, icon: "handoff", variant: primary ? "primary" : "secondary", shortcut: "h", onClick: (e) => props.onCopyHandoff(e.currentTarget as HTMLElement) });
+    Button({ label: t.detail.copyHandoff, icon: "handoff", variant: primary ? "primary" : "secondary", shortcut: "h", onClick: () => props.onCopyHandoff() });
   const actions =
     session.source === "transcript"
       ? [
           props.canOpenTerminal &&
-            Button({ label: t.detail.resume, icon: "terminal", variant: "primary", shortcut: "o", onClick: (e) => props.onOpenTerminal(e.currentTarget as HTMLElement) }),
+            Button({ label: t.detail.resume, icon: "terminal", variant: "primary", shortcut: "o", onClick: () => props.onOpenTerminal() }),
           Button({ label: t.detail.copyCommand, icon: "copy", shortcut: "c", onClick: () => props.onCopyCommand() }),
           copyHandoff(false),
         ]
@@ -78,7 +79,7 @@ export function SessionDetail(props: SessionDetailProps): HTMLElement {
         session.source === "transcript" &&
           Button({ label: props.showReplies ? t.detail.hideReplies : t.detail.showReplies, variant: "ghost", size: "sm", onClick: () => props.onToggleReplies() }),
       ),
-      PromptList({ messages }),
+      PromptList({ messages, messageUrl: props.messageUrl }),
     ),
     files.length > 0 &&
       h(

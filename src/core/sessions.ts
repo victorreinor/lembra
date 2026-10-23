@@ -26,9 +26,12 @@ export interface Session {
 }
 
 export interface SessionMessage {
+  id: number;
   role: Role;
   ts: string;
   text: string;
+  // The text was cut at maxChars; getMessage has the whole of it.
+  truncated: boolean;
 }
 
 export interface Facet {
@@ -59,11 +62,20 @@ export function findSession(db: Database, ref: string): Session {
 }
 
 // Prompts and /compact summaries in order; replies only when asked (they are most of the volume).
-export function sessionMessages(db: Database, sessionId: string, opts: { replies?: boolean } = {}): SessionMessage[] {
+// `maxChars` cuts each text in SQL, so a 16 MB pasted log never leaves the database whole.
+export function sessionMessages(db: Database, sessionId: string, opts: { replies?: boolean; maxChars?: number } = {}): SessionMessage[] {
   const roles = opts.replies ? "('prompt', 'summary', 'reply')" : "('prompt', 'summary')";
+  const text = opts.maxChars ? "substr(text, 1, $max) AS text, length(text) > $max AS truncated" : "text, 0 AS truncated";
   return db
-    .query<SessionMessage, any>(`SELECT role, ts, text FROM messages WHERE session_id = $id AND role IN ${roles} ORDER BY ts, id`)
-    .all({ id: sessionId });
+    .query<Omit<SessionMessage, "truncated"> & { truncated: number }, any>(
+      `SELECT id, role, ts, ${text} FROM messages WHERE session_id = $id AND role IN ${roles} ORDER BY ts, id`,
+    )
+    .all(opts.maxChars ? { id: sessionId, max: opts.maxChars } : { id: sessionId })
+    .map((message) => ({ ...message, truncated: message.truncated === 1 }));
+}
+
+export function getMessage(db: Database, id: number): string | null {
+  return db.query<{ text: string }, [number]>("SELECT text FROM messages WHERE id = ?").get(id)?.text ?? null;
 }
 
 // Repos and branches ordered by most recent activity, for filter suggestions.

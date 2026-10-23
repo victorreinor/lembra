@@ -14,6 +14,8 @@ import { clip } from "./text";
 export type Runner = (prompt: string) => Promise<string>;
 
 const MAX_TRANSCRIPT_CHARS = 24_000;
+// Longer than the per-message clips in summaryPrompt.
+const MAX_MESSAGE_CHARS = 4000;
 // Sessions touched in the last half hour may still be going; summarize them later.
 const ACTIVE_GRACE_MS = 30 * 60 * 1000;
 
@@ -29,7 +31,7 @@ export function claudeRunner(paths: Paths, model = "haiku"): Runner {
 }
 
 // The summary comes out in `locale`, the language the user reads lembra in.
-export function summaryPrompt(session: Session, messages: SessionMessage[], locale: Locale): string {
+export function summaryPrompt(session: Session, messages: Pick<SessionMessage, "role" | "text">[], locale: Locale): string {
   const t = CORE[locale].summary;
   let transcript = messages
     .map((message) => `[${t.speakers[message.role]}] ${clip(message.text, message.role === "reply" ? 1500 : 3000)}`)
@@ -56,7 +58,7 @@ export function sessionsToSummarize(db: Database, opts: { limit: number; now?: D
 
 export async function summarizeSession(db: Database, session: Session, runner: Runner, locale: Locale): Promise<string> {
   // The model sees masked text already; masking its answer too covers anything it reconstructs.
-  const digest = mask((await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true }), locale))).trim());
+  const digest = mask((await runner(summaryPrompt(session, sessionMessages(db, session.id, { replies: true, maxChars: MAX_MESSAGE_CHARS }), locale))).trim());
   if (!digest) throw new LembraError("summaryEmpty", { id: session.id.slice(0, 8) });
   const uid = `digest:${session.id}`;
   db.transaction(() => {

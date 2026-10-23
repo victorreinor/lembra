@@ -48,7 +48,7 @@ const en = {
     noneText: "Every branch with a recent session was pushed and has a PR.",
     sessions: (n: number) => `${n} ${plural(n, "session", "sessions")}`,
   },
-  load: { errorTitle: "Could not load", retry: "Try again" },
+  load: { errorTitle: "Could not load", retry: "Try again", httpError: (status: number) => `The server answered ${status}.` },
   detail: {
     emptyTitle: "Pick a session",
     emptyText: "Use [↓] [↑] to browse. With a session open, [o] resumes it in Terminal and [h] copies the handoff. [?] shows every shortcut.",
@@ -69,7 +69,7 @@ const en = {
   },
   card: { summary: "summary", promptsOnly: "prompts only" },
   roles: { prompt: "you", reply: "claude", summary: "/compact", digest: "summary" },
-  conversation: { compact: "/compact summary", replyPrefix: "claude · ", more: "show all", less: "collapse" },
+  conversation: { compact: "/compact summary", replyPrefix: "claude · ", more: "show all", less: "collapse", whole: "open the whole message" },
   file: {
     kinds: { write: "created", edit: "edited", read: "read", image: "image", ref: "cited" },
     status: { disk: "on disk", missing: "deleted from disk", image: "pasted image", partial: "no full content" },
@@ -174,7 +174,7 @@ const ptBR: UiCatalog = {
     noneText: "Toda branch com sessão recente foi enviada e tem PR.",
     sessions: (n) => `${n} ${plural(n, "sessão", "sessões")}`,
   },
-  load: { errorTitle: "Não deu para carregar", retry: "Tentar de novo" },
+  load: { errorTitle: "Não deu para carregar", retry: "Tentar de novo", httpError: (status) => `O servidor respondeu ${status}.` },
   detail: {
     emptyTitle: "Escolha uma sessão",
     emptyText: "Use [↓] [↑] para navegar. Com uma sessão aberta, [o] retoma no Terminal e [h] copia o handoff. [?] mostra todos os atalhos.",
@@ -195,7 +195,7 @@ const ptBR: UiCatalog = {
   },
   card: { summary: "resumo", promptsOnly: "só prompts" },
   roles: { prompt: "você", reply: "claude", summary: "/compact", digest: "resumo" },
-  conversation: { compact: "resumo do /compact", replyPrefix: "claude · ", more: "ver tudo", less: "recolher" },
+  conversation: { compact: "resumo do /compact", replyPrefix: "claude · ", more: "ver tudo", less: "recolher", whole: "abrir a mensagem inteira" },
   file: {
     kinds: { write: "criou", edit: "editou", read: "leu", image: "imagem", ref: "citado" },
     status: { disk: "no disco", missing: "apagado do disco", image: "imagem colada", partial: "sem conteúdo completo" },

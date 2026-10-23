@@ -1,9 +1,11 @@
 // Shapes exchanged between the local API (src/web/api.ts) and the page (src/web/ui). Type-only on the client.
 
-import type { FileStatus } from "../core/files";
-import type { Role } from "../core/transcript";
+import type { FileStatus, StoredFile } from "../core/files";
+import type { Snippet } from "../core/search";
+import type { Facet, SessionMessage } from "../core/sessions";
+import type { LembraStats } from "../core/stats";
 
-export type { Role };
+export type { Facet, SessionMessage };
 
 export interface SessionDTO {
   id: string;
@@ -26,16 +28,10 @@ export interface SessionDTO {
   resumeCommand: string | null;
 }
 
-export interface SnippetDTO {
-  role: Role;
-  ts: string;
-  // Matches wrapped in \x01…\x02.
-  text: string;
-}
-
 export interface ResultDTO {
   session: SessionDTO;
-  snippets: SnippetDTO[];
+  // Matches wrapped in \x01…\x02.
+  snippets: Snippet[];
 }
 
 export interface SearchResponse {
@@ -44,12 +40,11 @@ export interface SearchResponse {
   tookMs: number;
 }
 
-
 export interface FileDTO {
   id: number;
   path: string;
   displayPath: string;
-  kind: "write" | "edit" | "read" | "image" | "ref";
+  kind: StoredFile["kind"];
   ts: string;
   size: number | null;
   repoName: string;
@@ -59,15 +54,9 @@ export interface FileDTO {
   secrets: number;
 }
 
-export interface MessageDTO {
-  role: Role;
-  ts: string;
-  text: string;
-}
-
 export interface SessionDetailResponse {
   session: SessionDTO;
-  messages: MessageDTO[];
+  messages: SessionMessage[];
   files: FileDTO[];
 }
 
@@ -76,27 +65,13 @@ export interface FilesResponse {
   total: number;
 }
 
-export interface Facet {
-  value: string;
-  sessions: number;
-}
-
 export interface FacetsResponse {
-  repos: Facet[];
+  // label: the repository's short name, as shown everywhere else.
+  repos: (Facet & { label: string })[];
   branches: Facet[];
 }
 
-export interface StatsResponse {
-  sessions: number;
-  historyOnly: number;
-  oldest: string | null;
-  prompts: number;
-  missing: number;
-  dbBytes: number;
-  retentionDays: number | null;
-  indexedAt: string | null;
-  version: string;
-}
+export type StatsResponse = LembraStats & { indexedAt: string | null; version: string };
 
 export interface PendingDTO {
   repoName: string;
@@ -110,8 +85,4 @@ export interface PendingResponse {
   // The period actually analyzed (the server's default when none was asked).
   since: string;
   items: PendingDTO[];
-}
-
-export interface ErrorResponse {
-  error: string;
 }
