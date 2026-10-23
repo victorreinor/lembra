@@ -4,7 +4,7 @@ import { openDb } from "../../src/core/db";
 import { LembraError } from "../../src/core/errors";
 import { indexAll } from "../../src/core/indexer";
 import { search } from "../../src/core/search";
-import { findSession, listSessions } from "../../src/core/sessions";
+import { findSession, listFacets, listSessions } from "../../src/core/sessions";
 import { createFixture, OTHER_SESSION, seedBillingSession, seedOtherSession, SESSION, type Fixture } from "../support/fixture";
 
 let f: Fixture;
@@ -68,4 +68,15 @@ describe("sessions", () => {
     expect(() => findSession(db, "1111")).toThrow(/ambíguo/);
     expect(() => findSession(db, "zzz")).toThrow(LembraError);
   });
+});
+
+test("facets list repos and branches by most recent activity", () => {
+  expect(listFacets(db)).toEqual({
+    repos: [{ value: "billing-app", sessions: 2 }],
+    branches: [
+      { value: "main", sessions: 1 },
+      { value: "fix/billing", sessions: 1 },
+    ],
+  });
+  expect(listFacets(db, { repo: "nada" }).branches).toEqual([]);
 });

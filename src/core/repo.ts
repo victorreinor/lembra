@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename } from "node:path";
 
-const WORKTREE_SUFFIX = /\/\.(?:claude\/)?worktrees\/[^/]+.*$/;
+export const WORKTREE_SUFFIX = /\/\.(?:claude\/)?worktrees\/[^/]+.*$/;
 
 export function repoFromRemote(url: string): string | undefined {
   return url.trim().match(/[:/]([^/:]+\/[^/]+?)(?:\.git)?\/?$/)?.[1];

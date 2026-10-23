@@ -21,12 +21,19 @@ export interface Session {
   cost_usd: number | null;
   lines_added: number | null;
   lines_removed: number | null;
+  digest: string | null;
+  digest_at: string | null;
 }
 
 export interface SessionMessage {
   role: Role;
   ts: string;
   text: string;
+}
+
+export interface Facet {
+  value: string;
+  sessions: number;
 }
 
 export const SESSION_COLUMNS: FilterColumns = { repo: "s.repo", branch: "s.branch", from: "s.started_at", to: "s.ended_at" };
@@ -51,11 +58,29 @@ export function findSession(db: Database, ref: string): Session {
   return rows[0]!;
 }
 
+// Prompts and /compact summaries in order; replies only when asked (they are most of the volume).
 export function sessionMessages(db: Database, sessionId: string, opts: { replies?: boolean } = {}): SessionMessage[] {
-  const roles = opts.replies ? "" : "AND role != 'reply'";
+  const roles = opts.replies ? "('prompt', 'summary', 'reply')" : "('prompt', 'summary')";
   return db
-    .query<SessionMessage, any>(`SELECT role, ts, text FROM messages WHERE session_id = $id ${roles} ORDER BY ts, id`)
+    .query<SessionMessage, any>(`SELECT role, ts, text FROM messages WHERE session_id = $id AND role IN ${roles} ORDER BY ts, id`)
     .all({ id: sessionId });
+}
+
+// Repos and branches ordered by most recent activity, for filter suggestions.
+export function listFacets(db: Database, opts: { repo?: string } = {}): { repos: Facet[]; branches: Facet[] } {
+  const repos = db
+    .query<Facet, []>(
+      "SELECT repo AS value, count(*) AS sessions FROM sessions WHERE repo IS NOT NULL GROUP BY repo ORDER BY max(ended_at) DESC",
+    )
+    .all();
+  const branches = db
+    .query<Facet, any>(
+      `SELECT branch AS value, count(*) AS sessions FROM sessions
+       WHERE branch IS NOT NULL ${opts.repo ? "AND repo LIKE $repo" : ""}
+       GROUP BY branch ORDER BY max(ended_at) DESC LIMIT 100`,
+    )
+    .all(opts.repo ? { repo: `%${opts.repo}%` } : {});
+  return { repos, branches };
 }
 
 export function resumeCommand(session: Session): string {

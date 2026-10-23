@@ -28,7 +28,7 @@ export function search(db: Database, input: string, filters: Filters, opts: { pr
     .query<Snippet & { session_id: string; score: number }, any>(
       `SELECT m.session_id, m.role, m.ts,
          snippet(messages_fts, 0, char(1), char(2), '…', 24) AS text,
-         bm25(messages_fts) * CASE m.role WHEN 'prompt' THEN 2.0 WHEN 'summary' THEN 1.5 ELSE 1.0 END AS score
+         bm25(messages_fts) * CASE m.role WHEN 'prompt' THEN 2.0 WHEN 'reply' THEN 1.0 ELSE 1.5 END AS score
        FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid
        WHERE messages_fts MATCH $match ${m.where.map((clause) => `AND ${clause}`).join(" ")}
        ORDER BY score LIMIT 2000`,

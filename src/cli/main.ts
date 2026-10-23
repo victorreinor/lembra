@@ -4,7 +4,9 @@ import { openDb } from "../core/db";
 import { LembraError } from "../core/errors";
 import { indexAll } from "../core/indexer";
 import { defaultPaths, type Paths } from "../core/paths";
-import { COMMANDS, type Io, type Options } from "./commands";
+import { systemGit } from "../core/pending";
+import { claudeRunner } from "../core/summarize";
+import { COMMANDS, type Io, type Options, type Services } from "./commands";
 import { dim, red } from "./format";
 import { HELP } from "./help";
 
@@ -20,6 +22,8 @@ const OPTIONS = {
   to: { type: "string" },
   force: { type: "boolean", short: "f" },
   print: { type: "boolean" },
+  copy: { type: "boolean", short: "c" },
+  model: { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -30,8 +34,17 @@ export const consoleIo: Io = {
   interactive: Boolean(process.stdout.isTTY),
 };
 
+export function defaultServices(paths: Paths): Services {
+  return { git: systemGit, summarizer: (model) => claudeRunner(paths, model) };
+}
+
 // Returns the process exit code; never calls process.exit, so tests can drive it directly.
-export async function run(argv: string[], io: Io = consoleIo, paths: Paths = defaultPaths()): Promise<number> {
+export async function run(
+  argv: string[],
+  io: Io = consoleIo,
+  paths: Paths = defaultPaths(),
+  services: Services = defaultServices(paths),
+): Promise<number> {
   let options: Options;
   let positionals: string[];
   try {
@@ -55,7 +68,7 @@ export async function run(argv: string[], io: Io = consoleIo, paths: Paths = def
   const db = openDb(paths.dataDir);
   try {
     if (name !== "index") await refresh(db, paths, io);
-    return (await COMMANDS[name]!({ db, paths, options, args, io })) ?? 0;
+    return (await COMMANDS[name]!({ db, paths, options, args, io, services })) ?? 0;
   } catch (error) {
     if (!(error instanceof LembraError)) throw error;
     io.err(red(error.message));

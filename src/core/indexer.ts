@@ -17,6 +17,7 @@ import {
 } from "./transcript";
 
 const MAX_REF_BYTES = 10 * 1024 * 1024;
+const CHUNK_BYTES = 8 * 1024 * 1024;
 // history.jsonl gets the prompt before the transcript file exists; give a live session time to create it.
 const HISTORY_GRACE_MS = 60 * 60 * 1000;
 
@@ -79,29 +80,56 @@ export function listSources(projectsDir: string): Source[] {
   return sources.sort((a, b) => a.mtime - b.mtime);
 }
 
+export interface IndexOptions {
+  // Also refresh the raw zstd copy of every changed transcript.
+  archive?: boolean;
+  chunkBytes?: number;
+}
+
 // Incremental: each file is read from the byte offset where the previous run stopped.
-export async function indexAll(db: Database, paths: Paths, opts: { archive?: boolean } = {}): Promise<IndexStats> {
+export async function indexAll(db: Database, paths: Paths, opts: IndexOptions = {}): Promise<IndexStats> {
   rereadIfParserChanged(db);
   const sources = listSources(join(paths.claudeDir, "projects"));
   const stats: IndexStats = { scanned: sources.length, changed: 0, messages: 0, files: 0, history: 0 };
-  const indexer = new Indexer(db);
+  const indexer = new Indexer(db, paths.dataDir);
   for (const source of sources) {
     const state = sourceState(db, source.abs);
     if (opts.archive && state.archived_size !== source.size) await archiveFile(db, paths, source.abs, source.size);
     if (state.size === source.size) continue;
-    const start = state.offset <= source.size ? state.offset : 0;
-    const bytes = await Bun.file(source.abs).slice(start, source.size).bytes();
-    // A session still being written may end mid-line; leave that tail for the next run.
-    const end = bytes.lastIndexOf(10) + 1;
-    const lines = decoder.decode(bytes.subarray(0, end)).split("\n");
-    db.transaction(() => {
-      indexer.indexLines(source, lines, stats);
-      db.query(SAVE_OFFSET).run(source.abs, start + end, source.size);
-    })();
+    let offset = state.offset <= source.size ? state.offset : 0;
+    for await (const chunk of completeLines(source.abs, offset, source.size, opts.chunkBytes ?? CHUNK_BYTES)) {
+      db.transaction(() => {
+        indexer.indexLines(source, chunk.lines, stats);
+        // Size stays 0 until the whole file is read, so an interrupted run resumes from this offset.
+        db.query(SAVE_OFFSET).run(source.abs, chunk.next, 0);
+      })();
+      offset = chunk.next;
+    }
+    db.query(SAVE_OFFSET).run(source.abs, offset, source.size);
     stats.changed++;
   }
   stats.history = await importHistory(db, indexer, paths, sources, opts);
   return stats;
+}
+
+// Yields whole lines in bounded chunks, so a 200 MB transcript never sits in memory as one string.
+// A trailing line still being written is left for the next run.
+async function* completeLines(path: string, start: number, size: number, chunkBytes: number) {
+  const file = Bun.file(path);
+  let offset = start;
+  let chunk = chunkBytes;
+  while (offset < size) {
+    const bytes = await file.slice(offset, Math.min(offset + chunk, size)).bytes();
+    const end = bytes.lastIndexOf(10) + 1;
+    if (end === 0) {
+      if (offset + bytes.length >= size) return;
+      chunk *= 2; // one line is longer than the chunk
+      continue;
+    }
+    offset += end;
+    chunk = chunkBytes;
+    yield { lines: decoder.decode(bytes.subarray(0, end)).split("\n"), next: offset };
+  }
 }
 
 function rereadIfParserChanged(db: Database) {
@@ -151,7 +179,7 @@ async function importHistory(
       }
       const id = entry.sessionId;
       const at = Number(entry.timestamp);
-      if (!id || withTranscript.has(id) || !(at < cutoff)) continue;
+      if (!id || withTranscript.has(id) || !(at < cutoff) || indexer.isOwnSession(entry.project)) continue;
       const prompt = historyPrompt(entry);
       if (!prompt) continue;
       const ts = new Date(at).toISOString();
@@ -209,7 +237,15 @@ function contentOf(db: Database, op: FileOp): Uint8Array | undefined {
 class Indexer {
   private repos = new Map<string, string>();
 
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private dataDir: string,
+  ) {}
+
+  // Sessions lembra itself starts (AI summaries) run inside its data dir and are not user history.
+  isOwnSession(cwd: string | null | undefined): boolean {
+    return Boolean(cwd && (cwd === this.dataDir || cwd.startsWith(`${this.dataDir}/`)));
+  }
 
   repoOf(cwd: string | null | undefined): string | null {
     if (!cwd) return null;
@@ -232,6 +268,7 @@ class Indexer {
         continue;
       }
       const parsed = parseRecord(record);
+      if (this.isOwnSession(parsed.cwd)) return;
       const ts = parsed.ts ?? session.lastTs ?? new Date().toISOString();
       for (const op of parsed.files) {
         if (this.addFile(source.sessionId, ts, op)) stats.files++;

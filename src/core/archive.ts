@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
+import { createReadStream, createWriteStream, existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { createZstdCompress, createZstdDecompress } from "node:zlib";
 import type { Paths } from "./paths";
 
 // raw/ mirrors ~/.claude: raw/projects/<dir>/<session>.jsonl.zst, raw/history.jsonl.zst.
@@ -8,10 +10,17 @@ export function archivePath(paths: Paths, source: string): string {
   return join(paths.dataDir, "raw", `${relative(paths.claudeDir, source)}.zst`);
 }
 
-export async function archiveFile(db: Database, paths: Paths, source: string, size: number) {
-  const dest = archivePath(paths, source);
+// Streams through zstd so a 200 MB transcript never sits in memory, and renames at the end
+// so an interrupted run never leaves a truncated copy behind.
+async function streamTo(src: string, dest: string, transform: NodeJS.ReadWriteStream) {
   mkdirSync(dirname(dest), { recursive: true });
-  await Bun.write(dest, Bun.zstdCompressSync(await Bun.file(source).bytes()));
+  const partial = `${dest}.partial`;
+  await pipeline(createReadStream(src), transform, createWriteStream(partial));
+  renameSync(partial, dest);
+}
+
+export async function archiveFile(db: Database, paths: Paths, source: string, size: number) {
+  await streamTo(source, archivePath(paths, source), createZstdCompress());
   db.query(
     "INSERT INTO sources (path, archived_size) VALUES (?, ?) ON CONFLICT (path) DO UPDATE SET archived_size = excluded.archived_size",
   ).run(source, size);
@@ -24,7 +33,6 @@ export async function restoreTranscript(db: Database, paths: Paths, sessionId: s
   if (existsSync(row.path)) return "present";
   const raw = archivePath(paths, row.path);
   if (!existsSync(raw)) return "unavailable";
-  mkdirSync(dirname(row.path), { recursive: true });
-  await Bun.write(row.path, Bun.zstdDecompressSync(await Bun.file(raw).bytes()));
+  await streamTo(raw, row.path, createZstdDecompress());
   return "restored";
 }

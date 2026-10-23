@@ -97,6 +97,12 @@ CREATE INDEX IF NOT EXISTS files_path ON files (path, ts);
 CREATE INDEX IF NOT EXISTS files_session ON files (session_id);
 `;
 
+// Columns added after v0.1; databases created earlier gain them on open.
+const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
+  ["sessions", "digest", "TEXT"], // AI summary (lembra summarize)
+  ["sessions", "digest_at", "TEXT"],
+];
+
 export function openDb(dataDir: string): Database {
   mkdirSync(dataDir, { recursive: true });
   // The data dir holds everything ever pasted into a prompt; only the owner may enter it.
@@ -104,5 +110,9 @@ export function openDb(dataDir: string): Database {
   const db = new Database(join(dataDir, "lembra.db"), { create: true, strict: true });
   db.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;");
   db.exec(SCHEMA);
+  for (const [table, column, type] of ADDED_COLUMNS) {
+    const columns = db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all();
+    if (!columns.some((existing) => existing.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
   return db;
 }

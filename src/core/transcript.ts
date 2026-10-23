@@ -1,4 +1,5 @@
-export type Role = "prompt" | "reply" | "summary";
+// digest: the AI summary written by `lembra summarize`.
+export type Role = "prompt" | "reply" | "summary" | "digest";
 
 export interface Message {
   uid: string;

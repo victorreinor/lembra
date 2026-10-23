@@ -2,21 +2,24 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../../src/cli/main";
-import { captureIo, createFixture, decode, seedBillingSession, SESSION, type Fixture } from "../support/fixture";
+import type { Services } from "../../src/cli/commands";
+import { appendJsonl, captureIo, createFixture, decode, fakeServices, records, seedBillingSession, SESSION, type Fixture } from "../support/fixture";
 
 let f: Fixture;
 let seeded: ReturnType<typeof seedBillingSession>;
+let services: Services;
 
 beforeEach(() => {
   f = createFixture();
   seeded = seedBillingSession(f);
+  services = fakeServices().services;
 });
 
 afterEach(() => f.cleanup());
 
 async function lembra(...argv: string[]) {
   const io = captureIo();
-  const code = await run(argv, io, f.paths);
+  const code = await run(argv, io, f.paths, services);
   return { code, out: io.stdout.join("\n"), err: io.stderr.join("\n"), bytes: io.bytes };
 }
 
@@ -24,7 +27,7 @@ describe("lembra", () => {
   test("--help explains every command", async () => {
     const { code, out } = await lembra("--help");
     expect(code).toBe(0);
-    for (const command of ["search", "list", "show", "resume", "files", "restore", "cat", "index", "stats"]) {
+    for (const command of ["search", "list", "show", "resume", "handoff", "files", "restore", "cat", "pending", "summarize", "index", "stats"]) {
       expect(out).toContain(`lembra ${command}`);
     }
   });
@@ -102,6 +105,27 @@ describe("lembra", () => {
     const { code, err } = await lembra("show", "zzz");
     expect(code).toBe(1);
     expect(err).toContain("Nenhuma sessão");
+  });
+
+  test("handoff prints a brief ready to paste in a new session", async () => {
+    const { code, out } = await lembra("handoff", "billing-fix");
+    expect(code).toBe(0);
+    expect(out).toStartWith("# Handoff: billing-fix");
+    expect(out).toContain("## Como continuar");
+  });
+
+  test("summarize stores a digest that show displays", async () => {
+    appendJsonl(f.transcript, [records(f.cwd).prompt("u8", "2026-10-01T11:00:00.000Z", "e o mensal?")]);
+    const summarized = await lembra("summarize", "billing-fix");
+    expect(summarized.code).toBe(0);
+    expect(summarized.out).toContain("Corrigir o relatório de faturamento duplicado.");
+    expect((await lembra("show", "billing-fix")).out).toContain("Resumo\nCorrigir o relatório de faturamento duplicado.");
+  });
+
+  test("pending lists branches with undelivered work", async () => {
+    services = fakeServices({ facts: { "fix/billing": { exists: true, upstream: true, ahead: 2, dirty: false, pr: "NONE" } } }).services;
+    const { out } = await lembra("pending", "--since", "2026-01-01");
+    expect(out).toContain("billing-app · fix/billing  2 commits sem push · sem PR");
   });
 });
 

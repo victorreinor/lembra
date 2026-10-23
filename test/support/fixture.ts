@@ -1,8 +1,9 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import type { Io } from "../../src/cli/commands";
+import type { Io, Services } from "../../src/cli/commands";
 import type { Paths } from "../../src/core/paths";
+import type { BranchFacts } from "../../src/core/pending";
 
 export const SESSION = "11111111-2222-3333-4444-555555555555";
 export const OTHER_SESSION = "11119999-2222-3333-4444-555555555555";
@@ -160,3 +161,20 @@ export function captureIo(): CapturedIo {
 }
 
 export const decode = (data: Uint8Array) => new TextDecoder().decode(data);
+
+// Services that never touch git, gh or Claude: every call is recorded and answered from the given tables.
+export function fakeServices(opts: { digest?: (prompt: string) => string; facts?: Record<string, BranchFacts> } = {}) {
+  const prompts: string[] = [];
+  const services: Services = {
+    summarizer: () => async (prompt) => {
+      prompts.push(prompt);
+      return opts.digest?.(prompt) ?? "Corrigir o relatório de faturamento duplicado.\nSQL de correção em fix.sql.";
+    },
+    git: {
+      root: async (cwd) => cwd,
+      defaultBranch: async () => "main",
+      facts: async (_root, branch) => opts.facts?.[branch] ?? { exists: true, upstream: true, ahead: 0, dirty: false, pr: "MERGED" },
+    },
+  };
+  return { services, prompts };
+}

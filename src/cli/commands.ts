@@ -4,12 +4,16 @@ import { isAbsolute } from "node:path";
 import { restoreTranscript } from "../core/archive";
 import { LembraError } from "../core/errors";
 import { isMissing, latestFiles, readStoredFile, resolveFile, restoreFile, sessionFiles, type StoredFile } from "../core/files";
+import { buildHandoff } from "../core/handoff";
 import { indexAll } from "../core/indexer";
 import type { Paths } from "../core/paths";
+import { describeReasons, findPending, type GitProbe } from "../core/pending";
 import { parseDate, type Filters } from "../core/query";
 import { search } from "../core/search";
 import { findSession, listSessions, resumeCommand, sessionMessages, type Session } from "../core/sessions";
 import { collectStats } from "../core/stats";
+import { sessionsToSummarize, summarizeSession, type Runner } from "../core/summarize";
+import { copyToClipboard } from "../system/os";
 import { bold, bytes, count, cyan, dim, green, highlight, oneLine, red, repoName, shortPath, when, yellow } from "./format";
 
 export interface Io {
@@ -18,6 +22,12 @@ export interface Io {
   write(data: Uint8Array): void;
   // A real terminal: `resume` may hand it over to claude.
   interactive: boolean;
+}
+
+// Side effects that reach outside the vault, injected so tests never call git, gh or Claude.
+export interface Services {
+  git: GitProbe;
+  summarizer(model: string): Runner;
 }
 
 export interface Options {
@@ -32,6 +42,8 @@ export interface Options {
   to?: string;
   force?: boolean;
   print?: boolean;
+  copy?: boolean;
+  model?: string;
   help?: boolean;
 }
 
@@ -41,11 +53,12 @@ export interface Context {
   options: Options;
   args: string[];
   io: Io;
+  services: Services;
 }
 
 type Command = (ctx: Context) => number | void | Promise<number | void>;
 
-const ROLE_MARK = { prompt: "›", reply: "‹", summary: "≡" } as const;
+const ROLE_MARK = { prompt: "›", reply: "‹", summary: "≡", digest: "∑" } as const;
 const FILE_HINT = "lembra restore <#id> [--to caminho] · lembra cat <#id>";
 
 export const COMMANDS: Record<string, Command> = {
@@ -53,9 +66,12 @@ export const COMMANDS: Record<string, Command> = {
   list: listCommand,
   show: showCommand,
   resume: resumeSessionCommand,
+  handoff: handoffCommand,
   files: filesCommand,
   restore: restoreCommand,
   cat: catCommand,
+  pending: pendingCommand,
+  summarize: summarizeCommand,
   index: indexCommand,
   stats: statsCommand,
 };
@@ -93,6 +109,7 @@ function showCommand({ db, options, args, io }: Context) {
   io.out(`${when(session.started_at)} → ${when(session.ended_at)} · ${session.prompt_count} prompts${cost}${lines}`);
   if (session.source === "history") io.out(yellow("Só os prompts: o Claude Code apagou o transcript antes do cofre existir."));
   else io.out(`Retomar: ${cyan(resumeCommand(session))}`);
+  if (session.digest) io.out(`\n${bold("Resumo")}\n${session.digest}`);
 
   io.out(`\n${bold("Prompts")}`);
   let n = 0;
@@ -111,7 +128,9 @@ function showCommand({ db, options, args, io }: Context) {
 async function resumeSessionCommand({ db, paths, options, args, io }: Context): Promise<number> {
   const session = findSession(db, required(args[0], "a sessão"));
   if (session.source === "history") {
-    throw new LembraError("O Claude Code apagou o transcript desta sessão antes do cofre existir, então não dá para retomá-la. Use lembra show para ver os prompts.");
+    throw new LembraError(
+      "O Claude Code apagou o transcript desta sessão antes do cofre existir, então não dá para retomá-la. Use lembra handoff para levar o contexto a uma sessão nova.",
+    );
   }
   if ((await restoreTranscript(db, paths, session.id)) === "restored") io.err(dim("Transcript restaurado a partir do cofre."));
   const command = resumeCommand(session);
@@ -124,6 +143,13 @@ async function resumeSessionCommand({ db, paths, options, args, io }: Context): 
   io.err(dim(command));
   const child = Bun.spawn(["claude", "--resume", session.id], { cwd: session.cwd!, stdio: ["inherit", "inherit", "inherit"] });
   return await child.exited;
+}
+
+async function handoffCommand({ db, options, args, io }: Context) {
+  const text = buildHandoff(db, findSession(db, required(args[0], "a sessão")));
+  if (!options.copy) return io.out(text);
+  await copyToClipboard(text);
+  io.out(`${green("Copiado.")} Cole num terminal novo do Claude Code para continuar de onde parou.`);
 }
 
 function filesCommand({ db, options, args, io }: Context) {
@@ -146,6 +172,38 @@ function catCommand({ db, args, io }: Context) {
   io.write(readStoredFile(db, resolveFile(db, required(args[0], "o arquivo (#id ou caminho)"))));
 }
 
+async function pendingCommand({ db, options, io, services }: Context) {
+  io.err(dim("Consultando git e GitHub…"));
+  const items = await findPending(db, { since: parseDate(options.since ?? "14d"), probe: services.git });
+  if (!items.length) return io.out(green("Nada pendente: toda branch com sessão recente foi enviada e tem PR."));
+  for (const item of items) {
+    io.out(`${green(repoName(item.repo))} · ${bold(item.branch)}  ${yellow(describeReasons(item).join(" · "))}`);
+    const last = item.lastSession;
+    io.out(dim(`   ${item.sessions} sessões · última ${when(last.ended_at)} · ${last.id.slice(0, 8)} ${oneLine(last.title, 70)}`));
+  }
+}
+
+async function summarizeCommand({ db, options, args, io, services }: Context): Promise<number> {
+  const sessions = args[0] ? [findSession(db, args[0])] : sessionsToSummarize(db, { limit: limitFrom(options, 10) });
+  if (!sessions.length) return io.out(dim("Nenhuma sessão nova para resumir.")) ?? 0;
+  const model = options.model ?? "haiku";
+  const runner = services.summarizer(model);
+  io.err(dim(`Resumindo ${sessions.length} ${sessions.length === 1 ? "sessão" : "sessões"} com ${model}…`));
+  let failed = 0;
+  for (const session of sessions) {
+    try {
+      const digest = await summarizeSession(db, session, runner);
+      io.out(`${green("✓")} ${cyan(session.id.slice(0, 8))} ${bold(oneLine(session.title, 60))}`);
+      io.out(dim(`   ${oneLine(digest.split("\n")[0], 140)}`));
+    } catch (error) {
+      if (!(error instanceof LembraError)) throw error;
+      failed++;
+      io.err(`${red("✗")} ${session.id.slice(0, 8)} ${error.message}`);
+    }
+  }
+  return failed ? 1 : 0;
+}
+
 async function indexCommand({ db, paths, io }: Context) {
   const started = performance.now();
   const stats = await indexAll(db, paths, { archive: true });
@@ -159,7 +217,7 @@ function statsCommand({ db, paths, io }: Context) {
   const stats = collectStats(db, paths);
   const retention = stats.retentionDays
     ? `${count(stats.retentionDays)} dias`
-    : red("30 dias (padrão): o Claude Code apaga transcripts antigos. Configure cleanupPeriodDays.");
+    : red("30 dias (padrão): o Claude Code apaga transcripts antigos. Rode lembra install ou configure cleanupPeriodDays.");
   const rows: [string, string][] = [
     ["Sessões", `${count(stats.sessions)} com transcript · ${count(stats.historyOnly)} só com prompts · desde ${when(stats.oldest)}`],
     ["Mensagens", `${count(stats.prompts)} prompts · ${count(stats.replies)} respostas · ${count(stats.summaries)} resumos de /compact`],

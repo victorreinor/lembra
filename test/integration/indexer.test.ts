@@ -40,6 +40,21 @@ describe("indexAll", () => {
     expect(sessionMessages(db, SESSION, { replies: true }).map((m) => m.role)).toEqual(["prompt", "reply"]);
   });
 
+  test("reads in small chunks with the same result, even when a line is longer than the chunk", async () => {
+    const { fixSql } = seedBillingSession(f);
+    const stats = await indexAll(db, f.paths, { chunkBytes: 64 });
+    expect(stats).toMatchObject({ changed: 1, messages: 2 });
+    expect(getSession(db, SESSION)).toMatchObject({ title: "billing-fix", prompt_count: 1 });
+    expect(decode(readStoredFile(db, resolveFile(db, fixSql)))).toBe("UPDATE faturas SET total = 2;\n");
+  });
+
+  test("ignores sessions lembra itself runs inside its data dir", async () => {
+    const own = join(dirname(f.transcript), "..", "own", "22222222-0000-0000-0000-000000000000.jsonl");
+    writeJsonl(own, [records(f.paths.dataDir, "22222222-0000-0000-0000-000000000000").prompt("x1", "2026-10-01T10:00:00.000Z", "resuma")]);
+    await indexAll(db, f.paths);
+    expect(getSession(db, "22222222-0000-0000-0000-000000000000")).toBeNull();
+  });
+
   test("summarizes the session", async () => {
     seedBillingSession(f);
     await indexAll(db, f.paths);

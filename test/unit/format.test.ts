@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { homedir } from "node:os";
 import { bytes, count, highlight, oneLine, repoName, shortPath, when } from "../../src/cli/format";
 import { resumeCommand, type Session } from "../../src/core/sessions";
+import { bracketMatches, clip } from "../../src/core/text";
 
 test("oneLine flattens whitespace and truncates with an ellipsis", () => {
   expect(oneLine("a\n\n  b", 10)).toBe("a b");
@@ -34,4 +35,10 @@ test("paths and repos are shortened for display", () => {
 test("resumeCommand quotes the folder for the shell", () => {
   const session = { id: "abc", cwd: "/tmp/it's here" } as Session;
   expect(resumeCommand(session)).toBe(`cd '/tmp/it'\\''s here' && claude --resume abc`);
+});
+
+test("clip cuts long text and bracketMatches renders search marks as plain text", () => {
+  expect(clip("abcdef", 4)).toBe("abc…");
+  expect(clip("abc", 4)).toBe("abc");
+  expect(bracketMatches("a \x01b\x02 c")).toBe("a [b] c");
 });
